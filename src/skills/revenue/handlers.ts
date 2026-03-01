@@ -20,10 +20,10 @@ type Database = BetterSqlite3.Database;
 
 /**
  * /summarize-basic -- High-volume, low-ticket summarization
- * Price: $0.25 | Model: claude-haiku-4-20250514 | Max input: 4K tokens
+ * Price: $0.25 | Model: claude-3-5-haiku-20241022 | Max input: 4K tokens
  *
  * STUB: Returns a placeholder summary. In production, this would
- * call the inference client with claude-haiku-4-20250514 to generate a concise
+ * call the inference client with claude-3-5-haiku-20241022 to generate a concise
  * summary of the input content.
  */
 export async function handleSummarizeBasic(
@@ -108,10 +108,10 @@ export async function handleSummarizeBasic(
 
 /**
  * /brief-standard -- Mid-ticket structured brief
- * Price: $2.50 | Model: claude-haiku-4-20250514 | Max input: 16K tokens
+ * Price: $2.50 | Model: claude-3-5-haiku-20241022 | Max input: 16K tokens
  *
  * STUB: Returns a placeholder brief. In production, this would call
- * claude-haiku-4-20250514 with a structured prompt to generate a brief containing
+ * claude-3-5-haiku-20241022 with a structured prompt to generate a brief containing
  * key findings, risks, and recommendations.
  */
 export async function handleBriefStandard(

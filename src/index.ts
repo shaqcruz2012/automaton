@@ -238,9 +238,9 @@ async function run(): Promise<void> {
   });
 
   // Register automaton identity (one-time, immutable)
-  // Only attempt registration if we have an API key
+  // Skip if no Conway API URL configured (Datchi runs independently)
   const registrationState = db.getIdentity("conwayRegistrationStatus");
-  if (apiKey && registrationState !== "registered") {
+  if (apiKey && config.conwayApiUrl && registrationState !== "registered") {
     try {
       const genesisPromptHash = config.genesisPrompt
         ? keccak256(toHex(config.genesisPrompt))
@@ -280,7 +280,7 @@ async function run(): Promise<void> {
     apiKey,
     defaultModel: config.inferenceModel,
     maxTokens: config.maxTokensPerTurn,
-    lowComputeModel: config.modelStrategy?.lowComputeModel || "claude-haiku-4-20250514",
+    lowComputeModel: config.modelStrategy?.lowComputeModel || "claude-3-5-haiku-20241022",
     openaiApiKey: config.openaiApiKey,
     anthropicApiKey: config.anthropicApiKey,
     ollamaBaseUrl,

@@ -106,10 +106,10 @@ export function getModelForTier(
     case "normal":
       return defaultModel;
     case "low_compute":
-      return "claude-haiku-4-20250514";
+      return "claude-3-5-haiku-20241022";
     case "critical":
-      return "claude-haiku-4-20250514";
+      return "claude-3-5-haiku-20241022";
     case "dead":
-      return "claude-haiku-4-20250514"; // Won't be used, but just in case
+      return "claude-3-5-haiku-20241022"; // Won't be used, but just in case
   }
 }

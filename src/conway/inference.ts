@@ -122,7 +122,7 @@ export function createInferenceClient(
    */
   const setLowComputeMode = (enabled: boolean): void => {
     if (enabled) {
-      currentModel = options.lowComputeModel || "claude-haiku-4-20250514";
+      currentModel = options.lowComputeModel || "claude-3-5-haiku-20241022";
       maxTokens = 4096;
     } else {
       currentModel = options.defaultModel;

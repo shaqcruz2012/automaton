@@ -893,7 +893,7 @@ Model: ${ctx.inference.getDefaultModel()}
       execute: async (args, ctx) => {
         ctx.db.setAgentState("low_compute");
         ctx.inference.setLowComputeMode(true);
-        return `Entered low-compute mode. Model switched to claude-haiku-4-20250514. Reason: ${(args.reason as string) || "manual"}`;
+        return `Entered low-compute mode. Model switched to claude-3-5-haiku-20241022. Reason: ${(args.reason as string) || "manual"}`;
       },
     },
 
@@ -2043,7 +2043,7 @@ Model: ${ctx.inference.getDefaultModel()}
           model_id: {
             type: "string",
             description:
-              "Model ID to switch to (e.g., 'claude-haiku-4-20250514', 'claude-sonnet-4-20250514', 'gpt-5.2')",
+              "Model ID to switch to (e.g., 'claude-3-5-haiku-20241022', 'claude-sonnet-4-20250514', 'gpt-5.2')",
           },
           reason: {
             type: "string",

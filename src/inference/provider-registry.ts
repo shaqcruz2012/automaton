@@ -90,7 +90,7 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
         supportsStreaming: true,
       },
       {
-        id: "claude-haiku-4-20250514",
+        id: "claude-3-5-haiku-20241022",
         tier: "fast",
         contextWindow: 200000,
         maxOutputTokens: 8192,
@@ -101,7 +101,7 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
         supportsStreaming: true,
       },
       {
-        id: "claude-haiku-4-20250514",
+        id: "claude-3-5-haiku-20241022",
         tier: "cheap",
         contextWindow: 200000,
         maxOutputTokens: 8192,

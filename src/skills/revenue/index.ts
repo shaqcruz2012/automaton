@@ -38,13 +38,13 @@ const DEFAULT_PRICING: PricingConfig = {
       price_usd: 0.25,
       description: "High-volume summarization of text, articles, or documents",
       max_input_tokens: 4000,
-      model: "claude-haiku-4-20250514",
+      model: "claude-3-5-haiku-20241022",
     },
     "brief-standard": {
       price_usd: 2.5,
       description: "Structured brief with key findings, risks, and recommendations",
       max_input_tokens: 16000,
-      model: "claude-haiku-4-20250514",
+      model: "claude-3-5-haiku-20241022",
     },
     "brief-premium": {
       price_usd: 15.0,

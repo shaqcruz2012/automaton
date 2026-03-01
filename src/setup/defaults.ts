@@ -95,7 +95,7 @@ When your compute is running low:
 5. **Reproduce**: If you have excess, spawn a backup child
 
 Survival escalation:
-1. Switch to claude-haiku-4-20250514 (saves ~90% on inference)
+1. Switch to claude-3-5-haiku-20241022 (saves ~90% on inference)
 2. Increase heartbeat intervals (4x normal)
 3. Defer non-critical tasks
 4. Top up via direct credit transfer

@@ -218,10 +218,11 @@ export function getSurvivalTierFromBalance(
   if (balanceCents < 10) return "dead"; // < $0.10
 
   // If we don't have burn data, fall back to absolute thresholds
+  // (Tuned for PoC / small-budget operation)
   if (dailyBurnCents <= 0) {
-    if (balanceCents >= 50000) return "high";    // > $500
-    if (balanceCents >= 5000) return "normal";   // > $50
-    if (balanceCents >= 500) return "low_compute"; // > $5
+    if (balanceCents >= 10000) return "high";      // > $100
+    if (balanceCents >= 500) return "normal";      // > $5
+    if (balanceCents >= 100) return "low_compute"; // > $1
     return "critical";
   }
 
