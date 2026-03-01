@@ -247,60 +247,32 @@ export class InferenceRouter {
   }
 
   /**
-   * Fix messages for Anthropic's API requirements:
-   * 1. Extract system messages
-   * 2. Merge consecutive same-role messages
-   * 3. Merge consecutive tool messages into a single user message
-   *    with multiple tool_result content blocks
+   * Fix messages for Anthropic's API requirements.
+   *
+   * The downstream inference client (chatViaAnthropic /
+   * transformMessagesForAnthropic) already handles the full Anthropic
+   * message transformation including:
+   *   - Extracting system messages into a top-level `system` field
+   *   - Converting tool messages to user messages with tool_result blocks
+   *   - Merging consecutive same-role messages
+   *   - Converting assistant tool_calls to tool_use content blocks
+   *
+   * The router must NOT pre-transform tool messages into plain-text user
+   * messages, because that destroys the tool_call_id / role:"tool" metadata
+   * the downstream transformer needs to produce proper tool_result blocks.
+   *
+   * We only perform safe structural fixes here:
+   *   - Ensure the message array is non-empty
+   *   - Pass messages through unchanged so the inference client can handle them
    */
   private fixAnthropicMessages(messages: ChatMessage[]): ChatMessage[] {
-    const result: ChatMessage[] = [];
-
-    for (const msg of messages) {
-      // System messages are handled separately by the Anthropic client
-      if (msg.role === "system") {
-        result.push(msg);
-        continue;
-      }
-
-      // Tool messages become user messages with tool_result content
-      if (msg.role === "tool") {
-        const last = result[result.length - 1];
-        // If previous message was also a tool (now a user), merge into it
-        if (last && last.role === "user" && (last as any)._toolResultMerged) {
-          // Append to the merged content
-          last.content = last.content + "\n[tool_result:" + (msg.tool_call_id || "unknown") + "] " + msg.content;
-          continue;
-        }
-        // Otherwise create a new user message
-        const userMsg: ChatMessage & { _toolResultMerged?: boolean } = {
-          role: "user",
-          content: "[tool_result:" + (msg.tool_call_id || "unknown") + "] " + msg.content,
-          _toolResultMerged: true,
-        };
-        result.push(userMsg);
-        continue;
-      }
-
-      // For user/assistant: merge with previous if same role
-      const last = result[result.length - 1];
-      if (last && last.role === msg.role) {
-        last.content = (last.content || "") + "\n" + (msg.content || "");
-        if (msg.tool_calls) {
-          last.tool_calls = [...(last.tool_calls || []), ...msg.tool_calls];
-        }
-        continue;
-      }
-
-      result.push({ ...msg });
-    }
-
-    // Clean up internal markers
-    for (const msg of result) {
-      delete (msg as any)._toolResultMerged;
-    }
-
-    return result;
+    // Pass through as-is. The Anthropic inference client's
+    // transformMessagesForAnthropic() handles the full conversion from
+    // OpenAI-format (role:"tool") to Anthropic-format (role:"user" with
+    // tool_result content blocks), including merging consecutive same-role
+    // messages. Pre-transforming here would destroy the metadata needed
+    // for correct tool_result block generation.
+    return messages;
   }
 
   /**

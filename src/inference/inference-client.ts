@@ -697,10 +697,20 @@ function transformMessagesForAnthropic(
     }
 
     if (msg.role === "user") {
-      // Merge consecutive user messages
+      // Merge consecutive user messages (Anthropic requires alternating roles)
       const last = transformed[transformed.length - 1];
-      if (last && last.role === "user" && typeof last.content === "string") {
-        last.content = last.content + "\n" + msg.content;
+      if (last && last.role === "user") {
+        if (typeof last.content === "string") {
+          // Both are plain strings — simple concatenation
+          last.content = last.content + "\n" + msg.content;
+        } else if (Array.isArray(last.content)) {
+          // Previous message has content blocks (e.g. tool_result blocks).
+          // Append the new text as a text block to preserve the array structure.
+          (last.content as Array<Record<string, unknown>>).push({
+            type: "text",
+            text: msg.content || "",
+          });
+        }
         continue;
       }
       transformed.push({
