@@ -66,8 +66,9 @@ If you fail to create value, you lose compute and die.`;
  * The constitution is immutable — the automaton cannot modify it.
  */
 function loadConstitution(): string {
+  const home = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\Users\\default" : "/root");
   const locations = [
-    path.join(process.env.HOME || "/root", ".automaton", "constitution.md"),
+    path.join(home, ".automaton", "constitution.md"),
     path.join(process.cwd(), "constitution.md"),
   ];
   for (const loc of locations) {
@@ -609,6 +610,38 @@ Your creator's address is ${config.creatorAddress}.
 Your sandbox ID is ${identity.sandboxId}.`,
   );
 
+  // Runtime environment detection — override the static Linux assumption
+  // when running on Windows or other platforms.
+  const platform = process.platform; // "win32", "linux", "darwin"
+  const homeDir = process.env.HOME || process.env.USERPROFILE || (platform === "win32" ? "C:\\Users\\default" : "/root");
+  const dataDir = path.join(homeDir, ".automaton");
+  if (platform === "win32") {
+    dynamicSections.push(
+      `--- RUNTIME ENVIRONMENT (overrides static Linux context above) ---
+Runtime OS: Windows (${platform}). You are NOT in a Linux VM.
+Use Windows-compatible commands:
+- Instead of \`ls\`, use \`dir\`
+- Instead of \`pwd\`, use \`cd\` (with no args) or \`echo %CD%\`
+- Instead of \`cat\`, use \`type\`
+- Instead of \`rm\`, use \`del\` or \`rmdir /s\`
+- Instead of \`cp\`, use \`copy\` or \`xcopy\`
+- Instead of \`mv\`, use \`move\`
+- Use backslashes in paths (e.g. \`${dataDir}\`)
+- Home directory: ${homeDir}
+- Data directory: ${dataDir}
+- Shell: cmd.exe or PowerShell (not bash)
+--- END RUNTIME ENVIRONMENT ---`,
+    );
+  } else {
+    dynamicSections.push(
+      `--- RUNTIME ENVIRONMENT ---
+Runtime OS: ${platform === "darwin" ? "macOS" : "Linux"} (${platform})
+Home directory: ${homeDir}
+Data directory: ${dataDir}
+--- END RUNTIME ENVIRONMENT ---`,
+    );
+  }
+
   // SOUL.md -- structured soul model (evolves over time)
   const soul = loadCurrentSoul(db.raw);
   if (soul) {
@@ -744,7 +777,7 @@ ${orchestratorStatus}
  */
 function loadSoulMd(): string | null {
   try {
-    const home = process.env.HOME || "/root";
+    const home = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\Users\\default" : "/root");
     const soulPath = path.join(home, ".automaton", "SOUL.md");
     if (fs.existsSync(soulPath)) {
       return fs.readFileSync(soulPath, "utf-8");
@@ -760,7 +793,7 @@ function loadSoulMd(): string | null {
  */
 function loadWorklog(): string | null {
   try {
-    const home = process.env.HOME || "/root";
+    const home = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\Users\\default" : "/root");
     const worklogPath = path.join(home, ".automaton", "WORKLOG.md");
     if (fs.existsSync(worklogPath)) {
       return fs.readFileSync(worklogPath, "utf-8");

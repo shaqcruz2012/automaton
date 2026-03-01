@@ -45,6 +45,7 @@ import {
   consumeNextWakeEvent,
 } from "../state/database.js";
 import type { InboxMessageRow } from "../state/database.js";
+import { CircuitOpenError } from "../conway/http-client.js";
 import { ulid } from "ulid";
 import { ModelRegistry } from "../inference/registry.js";
 import { InferenceBudgetTracker } from "../inference/budget.js";
@@ -151,7 +152,7 @@ export async function runAgentLoop(
       }
 
       const providersPath = path.join(
-        process.env.HOME || process.cwd(),
+        process.env.HOME || process.env.USERPROFILE || process.cwd(),
         ".automaton",
         "inference-providers.json",
       );
@@ -853,9 +854,57 @@ export async function runAgentLoop(
       }
 
       consecutiveErrors = 0;
+
+      // ── Inter-turn delay ──
+      // Pace inference calls to avoid hammering rate limits.
+      // Faster tiers can afford shorter delays; low tiers throttle harder.
+      if (running) {
+        const tierDelays: Record<string, number> = {
+          high: 1_000,
+          normal: 2_000,
+          low_compute: 5_000,
+          critical: 10_000,
+          dead: 10_000,
+        };
+        const delayMs = tierDelays[survivalTier] ?? 2_000;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     } catch (err: any) {
+      const errMsg: string = err?.message ?? String(err);
+
+      // ── Circuit breaker wait ──
+      // When the circuit breaker is open, parse the reset timestamp and
+      // wait for it to clear instead of counting it as an error.
+      if (err instanceof CircuitOpenError || errMsg.includes("Circuit breaker is open")) {
+        let waitMs = 60_000; // default fallback
+        if (err instanceof CircuitOpenError) {
+          waitMs = Math.max(err.resetAt - Date.now(), 1_000);
+        } else {
+          // Parse "Circuit breaker is open until <ISO timestamp>"
+          const match = errMsg.match(/until\s+(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/);
+          if (match) {
+            waitMs = Math.max(new Date(match[1]).getTime() - Date.now(), 1_000);
+          }
+        }
+        log(config, `[RATE_LIMIT] Circuit breaker open. Waiting ${Math.ceil(waitMs / 1000)}s for it to clear...`);
+        await new Promise((resolve) => setTimeout(resolve, waitMs + 1_000));
+        // Do NOT increment consecutiveErrors — this is expected transient behavior
+        continue;
+      }
+
+      // ── Rate limit (429) wait ──
+      // A 429 is expected under heavy use. Wait 60s and retry without
+      // counting toward the consecutive error limit.
+      if (errMsg.includes("429") || errMsg.toLowerCase().includes("rate limit")) {
+        log(config, `[RATE_LIMIT] 429 rate limit hit. Waiting 60s before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, 60_000));
+        // Do NOT increment consecutiveErrors — rate limits are transient
+        continue;
+      }
+
+      // ── All other errors ──
       consecutiveErrors++;
-      log(config, `[ERROR] Turn failed: ${err.message}`);
+      log(config, `[ERROR] Turn failed: ${errMsg}`);
 
       // Handle inbox message state on turn failure:
       // Messages that have retries remaining go back to 'received';
