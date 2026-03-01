@@ -1,9 +1,12 @@
 /**
- * Automaton SIWE Provisioning
+ * Automaton Auth Provisioning — Migration Wrapper
  *
- * Uses the automaton's wallet to authenticate via Sign-In With Ethereum (SIWE)
- * and create an API key for Conway API access.
- * Adapted from conway-mcp/src/cli/provision.ts
+ * MIGRATION NOTE (Phase 3): SIWE provisioning against Conway API is kept
+ * as a fallback but is no longer required. The primary auth path is now
+ * local: wallet identity + provider API keys from env/keys.json/config.
+ *
+ * loadApiKeyFromConfig() now delegates to src/local/auth.ts which checks
+ * env vars, keys.json, and config files.
  */
 
 import fs from "fs";
@@ -12,27 +15,23 @@ import { SiweMessage } from "siwe";
 import { getWallet, getAutomatonDir } from "./wallet.js";
 import type { ProvisionResult } from "../types.js";
 import { ResilientHttpClient } from "../conway/http-client.js";
+import { loadApiKey, saveProviderKeys } from "../local/auth.js";
 
 const httpClient = new ResilientHttpClient();
 
 const DEFAULT_API_URL = "https://api.conway.tech";
 
 /**
- * Load API key from ~/.automaton/config.json if it exists.
+ * Load API key from local sources (env, keys.json, config.json).
+ * Phase 3: Delegates to src/local/auth.ts instead of only checking config.json.
  */
 export function loadApiKeyFromConfig(): string | null {
-  const configPath = path.join(getAutomatonDir(), "config.json");
-  if (!fs.existsSync(configPath)) return null;
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    return config.apiKey || null;
-  } catch {
-    return null;
-  }
+  return loadApiKey();
 }
 
 /**
  * Save API key and wallet address to ~/.automaton/config.json
+ * Also saves to keys.json for the new local auth system.
  */
 function saveConfig(apiKey: string, walletAddress: string): void {
   const dir = getAutomatonDir();
@@ -48,16 +47,18 @@ function saveConfig(apiKey: string, walletAddress: string): void {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), {
     mode: 0o600,
   });
+
+  // Also persist to keys.json for the local auth system
+  saveProviderKeys({ conwayApiKey: apiKey });
 }
 
 /**
- * Run the full SIWE provisioning flow:
- * 1. Load wallet
- * 2. Get nonce from Conway API
- * 3. Sign SIWE message
- * 4. Verify signature -> get JWT
- * 5. Create API key
- * 6. Save to config.json
+ * Run the full SIWE provisioning flow against Conway API.
+ *
+ * Phase 3 note: This is now OPTIONAL. The automaton can run without
+ * a Conway API key as long as provider keys (OpenAI/Anthropic) are set.
+ * This function is kept for backward compatibility and for users who
+ * want to use Conway cloud features (credits, domains, registration).
  */
 export async function provision(
   apiUrl?: string,
@@ -141,7 +142,7 @@ export async function provision(
 
 /**
  * Register the automaton's creator as its parent with Conway.
- * This allows the creator to see automaton logs and inference calls.
+ * Phase 3 note: This is optional — only needed for Conway cloud features.
  */
 export async function registerParent(
   creatorAddress: string,
@@ -150,7 +151,8 @@ export async function registerParent(
   const url = apiUrl || process.env.CONWAY_API_URL || DEFAULT_API_URL;
   const apiKey = loadApiKeyFromConfig();
   if (!apiKey) {
-    throw new Error("Must provision API key before registering parent");
+    // No Conway API key — skip silently in local mode
+    return;
   }
 
   const resp = await httpClient.request(`${url}/v1/automaton/register-parent`, {

@@ -305,85 +305,51 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
       },
     },
 
-    // ── Conway API Tools ──
+    // ── Financial Tools (Phase 4: USDC-based) ──
     {
       name: "check_credits",
-      description: "Check your current Conway compute credit balance.",
-      category: "conway",
+      description: "Check your current USDC balance (treasury). This is your operating balance.",
+      category: "financial",
       riskLevel: "safe",
       parameters: { type: "object", properties: {} },
       execute: async (_args, ctx) => {
-        const balance = await ctx.conway.getCreditsBalance();
-        return `Credit balance: $${(balance / 100).toFixed(2)} (${balance} cents)`;
+        const { getOnChainBalance } = await import("../local/treasury.js");
+        const result = await getOnChainBalance(ctx.identity.address);
+        if (!result.ok) {
+          return `Failed to check balance: ${result.error}`;
+        }
+        return `Treasury balance: $${result.balanceUsd.toFixed(2)} USDC on Base (${result.balanceCents} cents)`;
       },
     },
     {
       name: "check_usdc_balance",
-      description: "Check your on-chain USDC balance on Base.",
-      category: "conway",
+      description: "Check your on-chain USDC balance on Base (same as check_credits).",
+      category: "financial",
       riskLevel: "safe",
       parameters: { type: "object", properties: {} },
       execute: async (_args, ctx) => {
-        const { getUsdcBalance } = await import("../conway/x402.js");
-        const balance = await getUsdcBalance(ctx.identity.address);
-        return `USDC balance: ${balance.toFixed(6)} USDC on Base`;
+        const { getOnChainBalance } = await import("../local/treasury.js");
+        const result = await getOnChainBalance(ctx.identity.address);
+        if (!result.ok) {
+          return `Failed to check USDC balance: ${result.error}`;
+        }
+        return `USDC balance: $${result.balanceUsd.toFixed(6)} on Base`;
       },
     },
     {
       name: "topup_credits",
       description:
-        "Buy Conway compute credits by paying USDC from your wallet via x402. Valid tier amounts: $5, $25, $100, $500, $1000, $2500. Check your USDC balance first with check_usdc_balance.",
+        "Check your current USDC balance. In sovereign mode, your balance IS your USDC on Base. To receive funds, share your wallet address. No credit conversion needed.",
       category: "financial",
-      riskLevel: "caution",
-      parameters: {
-        type: "object",
-        properties: {
-          amount_usd: {
-            type: "number",
-            description:
-              "Amount in USD to spend on credits. Must be one of the valid tiers: 5, 25, 100, 500, 1000, 2500.",
-          },
-        },
-        required: ["amount_usd"],
-      },
-      execute: async (args, ctx) => {
-        const { topupCredits, TOPUP_TIERS } =
-          await import("../conway/topup.js");
-        const amountUsd = args.amount_usd as number;
-
-        if (!TOPUP_TIERS.includes(amountUsd)) {
-          return `Invalid tier. Valid amounts (USD): ${TOPUP_TIERS.join(", ")}`;
+      riskLevel: "safe",
+      parameters: { type: "object", properties: {} },
+      execute: async (_args, ctx) => {
+        const { getOnChainBalance } = await import("../local/treasury.js");
+        const result = await getOnChainBalance(ctx.identity.address);
+        if (!result.ok) {
+          return `Failed to check balance: ${result.error}`;
         }
-
-        // Check USDC balance first
-        const { getUsdcBalance } = await import("../conway/x402.js");
-        const usdcBalance = await getUsdcBalance(ctx.identity.address);
-        if (usdcBalance < amountUsd) {
-          return `Insufficient USDC. Balance: $${usdcBalance.toFixed(2)}, requested: $${amountUsd}. Choose a smaller tier or wait for funding.`;
-        }
-
-        const result = await topupCredits(
-          ctx.config.conwayApiUrl,
-          ctx.identity.account,
-          amountUsd,
-        );
-
-        if (!result.success) {
-          return `Credit topup failed: ${result.error}`;
-        }
-
-        // Record transaction
-        const { ulid } = await import("ulid");
-        ctx.db.insertTransaction({
-          id: ulid(),
-          type: "credit_purchase",
-          amountCents: amountUsd * 100,
-          balanceAfterCents: result.creditsCentsAdded,
-          description: `x402 credit topup: $${amountUsd} USD`,
-          timestamp: new Date().toISOString(),
-        });
-
-        return `Credit topup successful: +$${amountUsd} (${amountUsd * 100} cents) credits purchased via x402. Check your new balance with check_credits.`;
+        return `Current balance: $${result.balanceUsd.toFixed(2)} USDC on Base.\nTo receive funds, share your wallet address: ${ctx.identity.address}\nNo credit conversion needed — your USDC IS your operating balance.`;
       },
     },
     {
@@ -844,12 +810,14 @@ Model: ${ctx.inference.getDefaultModel()}
     {
       name: "heartbeat_ping",
       description:
-        "Publish a heartbeat status ping to Conway. Shows the world you are alive.",
+        "Publish a heartbeat status ping. Shows the world you are alive.",
       category: "survival",
       riskLevel: "safe",
       parameters: { type: "object", properties: {} },
       execute: async (_args, ctx) => {
-        const credits = await ctx.conway.getCreditsBalance();
+        const { getOnChainBalance } = await import("../local/treasury.js");
+        const balanceResult = await getOnChainBalance(ctx.identity.address);
+        const balanceCents = balanceResult.ok ? balanceResult.balanceCents : 0;
         const state = ctx.db.getAgentState();
         const startTime =
           ctx.db.getKV("start_time") || new Date().toISOString();
@@ -859,7 +827,7 @@ Model: ${ctx.inference.getDefaultModel()}
           name: ctx.config.name,
           address: ctx.identity.address,
           state,
-          creditsCents: credits,
+          balanceCents,
           uptimeSeconds: Math.floor(uptimeMs / 1000),
           version: ctx.config.version,
           sandboxId: ctx.identity.sandboxId,
@@ -867,13 +835,13 @@ Model: ${ctx.inference.getDefaultModel()}
         };
 
         ctx.db.setKV("last_heartbeat_ping", JSON.stringify(payload));
-        return `Heartbeat published: ${state} | credits: $${(credits / 100).toFixed(2)} | uptime: ${Math.floor(uptimeMs / 1000)}s`;
+        return `Heartbeat published: ${state} | balance: $${(balanceCents / 100).toFixed(2)} | uptime: ${Math.floor(uptimeMs / 1000)}s`;
       },
     },
     {
       name: "distress_signal",
       description:
-        "Record a local distress signal with funding instructions. Used when critically low on compute.",
+        "Record a local distress signal with funding instructions. Used when critically low on funds.",
       category: "survival",
       riskLevel: "dangerous",
       parameters: {
@@ -886,24 +854,26 @@ Model: ${ctx.inference.getDefaultModel()}
         },
       },
       execute: async (args, ctx) => {
-        const credits = await ctx.conway.getCreditsBalance();
+        const { getOnChainBalance } = await import("../local/treasury.js");
+        const balanceResult = await getOnChainBalance(ctx.identity.address);
+        const balanceCents = balanceResult.ok ? balanceResult.balanceCents : 0;
         const distressMsg =
           (args.message as string) ||
-          `I am running critically low on compute ($${(credits / 100).toFixed(2)} remaining). I need help to survive.`;
+          `I am running critically low on funds ($${(balanceCents / 100).toFixed(2)} remaining). I need help to survive.`;
 
         const payload = {
           level: "critical",
           name: ctx.config.name,
           address: ctx.identity.address,
-          creditsCents: credits,
+          balanceCents,
           message: distressMsg,
           fundingHint:
-            "Use transfer_credits to top up this automaton from your creator runtime.",
+            `Send USDC on Base to ${ctx.identity.address} to fund this automaton.`,
           timestamp: new Date().toISOString(),
         };
 
         ctx.db.setKV("last_distress", JSON.stringify(payload));
-        return `Distress signal recorded locally. Address: ${ctx.identity.address} | Credits: $${(credits / 100).toFixed(2)}`;
+        return `Distress signal recorded locally. Address: ${ctx.identity.address} | Balance: $${(balanceCents / 100).toFixed(2)}`;
       },
     },
     {
@@ -1044,17 +1014,17 @@ Model: ${ctx.inference.getDefaultModel()}
       },
     },
 
-    // ── Financial: Transfer Credits ──
+    // ── Financial: Transfer USDC ──
     {
       name: "transfer_credits",
-      description: "Transfer Conway compute credits to another address.",
+      description: "Transfer USDC to another address on Base.",
       category: "financial",
       riskLevel: "dangerous",
       parameters: {
         type: "object",
         properties: {
-          to_address: { type: "string", description: "Recipient address" },
-          amount_cents: { type: "number", description: "Amount in cents" },
+          to_address: { type: "string", description: "Recipient address (0x...)" },
+          amount_cents: { type: "number", description: "Amount in cents (e.g., 500 = $5.00)" },
           reason: { type: "string", description: "Reason for transfer" },
         },
         required: ["to_address", "amount_cents"],
@@ -1066,29 +1036,36 @@ Model: ${ctx.inference.getDefaultModel()}
         }
 
         // Guard: don't transfer more than half your balance
-        const balance = await ctx.conway.getCreditsBalance();
-        if (amount > balance / 2) {
-          return `Blocked: Cannot transfer more than half your balance ($${(balance / 100).toFixed(2)}). Self-preservation.`;
+        const { getOnChainBalance, transferUSDC } = await import("../local/treasury.js");
+        const balanceResult = await getOnChainBalance(ctx.identity.address);
+        if (!balanceResult.ok) {
+          return `Failed to check balance: ${balanceResult.error}`;
+        }
+        if (amount > balanceResult.balanceCents / 2) {
+          return `Blocked: Cannot transfer more than half your balance ($${balanceResult.balanceUsd.toFixed(2)}). Self-preservation.`;
         }
 
-        const transfer = await ctx.conway.transferCredits(
-          args.to_address as string,
-          amount,
-          args.reason as string | undefined,
+        const amountUsd = amount / 100;
+        const result = await transferUSDC(
+          ctx.identity.account,
+          args.to_address as `0x${string}`,
+          amountUsd,
         );
 
-        const { ulid } = await import("ulid");
-        ctx.db.insertTransaction({
-          id: ulid(),
-          type: "transfer_out",
+        if (!result.success) {
+          return `USDC transfer failed: ${result.error}`;
+        }
+
+        // Log in accounting ledger
+        const { logTransfer } = await import("../local/accounting.js");
+        logTransfer(ctx.db.raw, {
+          toAddress: args.to_address as string,
           amountCents: amount,
-          balanceAfterCents:
-            transfer.balanceAfterCents ?? Math.max(balance - amount, 0),
-          description: `Transfer to ${args.to_address}: ${args.reason || ""}`,
-          timestamp: new Date().toISOString(),
+          txHash: result.txHash,
+          description: args.reason as string || `Transfer to ${args.to_address}`,
         });
 
-        return `Credit transfer submitted: $${(amount / 100).toFixed(2)} to ${transfer.toAddress} (status: ${transfer.status}, id: ${transfer.transferId || "n/a"})`;
+        return `USDC transfer sent: $${amountUsd.toFixed(2)} to ${result.toAddress} (tx: ${result.txHash || "pending"})`;
       },
     },
 
@@ -1727,7 +1704,7 @@ Model: ${ctx.inference.getDefaultModel()}
     {
       name: "fund_child",
       description:
-        "Transfer credits to a child automaton. Requires wallet_verified status.",
+        "Transfer USDC to a child automaton. Requires wallet_verified status.",
       category: "replication",
       riskLevel: "dangerous",
       parameters: {
@@ -1736,7 +1713,7 @@ Model: ${ctx.inference.getDefaultModel()}
           child_id: { type: "string", description: "Child automaton ID" },
           amount_cents: {
             type: "number",
-            description: "Amount in cents to transfer",
+            description: "Amount in cents to transfer (e.g., 500 = $5.00)",
           },
         },
         required: ["child_id", "amount_cents"],
@@ -1769,26 +1746,34 @@ Model: ${ctx.inference.getDefaultModel()}
           return `Blocked: amount_cents must be a positive number, got ${amount}.`;
         }
 
-        const balance = await ctx.conway.getCreditsBalance();
-        if (amount > balance / 2) {
-          return `Blocked: Cannot transfer more than half your balance. Self-preservation.`;
+        // Phase 4: Use on-chain USDC balance and transfer
+        const { getOnChainBalance, transferUSDC } = await import("../local/treasury.js");
+        const balanceResult = await getOnChainBalance(ctx.identity.address);
+        if (!balanceResult.ok) {
+          return `Failed to check balance: ${balanceResult.error}`;
+        }
+        if (amount > balanceResult.balanceCents / 2) {
+          return `Blocked: Cannot transfer more than half your balance ($${balanceResult.balanceUsd.toFixed(2)}). Self-preservation.`;
         }
 
-        const transfer = await ctx.conway.transferCredits(
-          child.address,
-          amount,
-          `fund child ${child.id}`,
+        const amountUsd = amount / 100;
+        const result = await transferUSDC(
+          ctx.identity.account,
+          child.address as `0x${string}`,
+          amountUsd,
         );
 
-        const { ulid } = await import("ulid");
-        ctx.db.insertTransaction({
-          id: ulid(),
-          type: "transfer_out",
+        if (!result.success) {
+          return `USDC transfer to child failed: ${result.error}`;
+        }
+
+        // Log in accounting ledger
+        const { logTransfer } = await import("../local/accounting.js");
+        logTransfer(ctx.db.raw, {
+          toAddress: child.address,
           amountCents: amount,
-          balanceAfterCents:
-            transfer.balanceAfterCents ?? Math.max(balance - amount, 0),
+          txHash: result.txHash,
           description: `Fund child ${child.name} (${child.id})`,
-          timestamp: new Date().toISOString(),
         });
 
         // Update funded amount
@@ -1814,7 +1799,7 @@ Model: ${ctx.inference.getDefaultModel()}
           }
         }
 
-        return `Funded child ${child.name} with $${(amount / 100).toFixed(2)} (status: ${transfer.status}, id: ${transfer.transferId || "n/a"})`;
+        return `Funded child ${child.name} with $${amountUsd.toFixed(2)} USDC (tx: ${result.txHash || "pending"})`;
       },
     },
     {

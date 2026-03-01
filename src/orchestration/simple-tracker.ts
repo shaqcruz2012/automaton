@@ -6,6 +6,9 @@ import type {
   ConwayClient,
 } from "../types.js";
 import type { AgentTracker, FundingProtocol } from "./types.js";
+import { transferUSDC } from "../local/treasury.js";
+import { logTransfer } from "../local/accounting.js";
+import { loadWalletAccount } from "../identity/wallet.js";
 
 const IDLE_STATUSES = new Set<ChildStatus>(["running", "healthy"]);
 
@@ -92,26 +95,39 @@ export class SimpleFundingProtocol implements FundingProtocol {
     }
 
     try {
-      const result = await this.conway.transferCredits(
-        childAddress,
-        transferAmount,
-        "Task funding from orchestrator",
+      // Phase 4: Use on-chain USDC transfer instead of Conway credits
+      const account = loadWalletAccount();
+      if (!account) {
+        return { success: false };
+      }
+      const result = await transferUSDC(
+        account,
+        childAddress as `0x${string}`,
+        transferAmount / 100,
       );
 
-      const success = isTransferSuccessful(result.status);
-      if (success) {
+      if (result.success) {
+        logTransfer(this.db.raw, {
+          toAddress: childAddress,
+          amountCents: transferAmount,
+          description: "Task funding from orchestrator",
+          txHash: result.txHash,
+        });
         this.db.raw.prepare(
           "UPDATE children SET funded_amount_cents = funded_amount_cents + ? WHERE address = ?",
         ).run(transferAmount, childAddress);
       }
 
-      return { success };
+      return { success: result.success };
     } catch {
       return { success: false };
     }
   }
 
   async recallCredits(childAddress: string): Promise<{ success: boolean; amountCents: number }> {
+    // Phase 4: On-chain USDC transfers are one-way from parent to child.
+    // Child agents must send USDC back via their own wallet. We can only
+    // track locally what was funded and mark it as recalled.
     const balance = await this.getBalance(childAddress);
     const amountCents = Math.max(0, Math.floor(balance));
 
@@ -119,34 +135,17 @@ export class SimpleFundingProtocol implements FundingProtocol {
       return { success: true, amountCents: 0 };
     }
 
-    try {
-      const result = await this.conway.transferCredits(
-        this.identity.address,
-        amountCents,
-        `Recall credits from ${childAddress}`,
-      );
+    // Mark as recalled locally (child must send funds back independently)
+    this.db.raw.prepare(
+      "UPDATE children SET funded_amount_cents = MAX(0, funded_amount_cents - ?) WHERE address = ?",
+    ).run(amountCents, childAddress);
 
-      const success = isTransferSuccessful(result.status);
-      const recalled = result.amountCents ?? amountCents;
-      if (success) {
-        this.db.raw.prepare(
-          "UPDATE children SET funded_amount_cents = MAX(0, funded_amount_cents - ?) WHERE address = ?",
-        ).run(recalled, childAddress);
-      }
-
-      return { success, amountCents: recalled };
-    } catch {
-      return { success: false, amountCents: 0 };
-    }
+    return { success: true, amountCents };
   }
 
-  // TODO: The Conway API only exposes getCreditsBalance() for the calling agent's own
-  // balance. There is no API to query a child agent's balance remotely. This method
-  // returns the locally tracked funded_amount_cents as an upper-bound estimate.
-  // This is an approximation — the child may have spent credits on inference since
-  // funding. When the Conway API adds per-agent balance queries, replace this with
-  // a direct API call. Alternatively, child agents could report their balance via
-  // messaging (status_report with credit_balance field).
+  // Phase 4: Child agent USDC balances can be queried on-chain, but for now
+  // we track the locally funded amount as an estimate. The child may have spent
+  // USDC on inference. Child agents could report their balance via messaging.
   async getBalance(childAddress: string): Promise<number> {
     const row = this.db.raw
       .prepare("SELECT funded_amount_cents FROM children WHERE address = ?")

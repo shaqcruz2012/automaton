@@ -9,6 +9,7 @@
 
 import { getWallet, getAutomatonDir } from "./identity/wallet.js";
 import { provision, loadApiKeyFromConfig } from "./identity/provision.js";
+import { hasInferenceProvider } from "./local/auth.js";
 import { loadConfig, resolvePath } from "./config.js";
 import { createDatabase } from "./state/database.js";
 import { createConwayClient } from "./conway/client.js";
@@ -30,7 +31,7 @@ import { createDefaultRules } from "./agent/policy-rules/index.js";
 import type { AutomatonIdentity, AgentState, Skill, SocialClientInterface } from "./types.js";
 import { DEFAULT_TREASURY_POLICY } from "./types.js";
 import { createLogger, setGlobalLogLevel } from "./observability/logger.js";
-import { bootstrapTopup } from "./conway/topup.js";
+import { getOnChainBalance } from "./local/treasury.js";
 import { randomUUID } from "crypto";
 import { keccak256, toHex } from "viem";
 
@@ -58,15 +59,17 @@ Usage:
   automaton --configure    Edit configuration (providers, model, treasury, general)
   automaton --pick-model   Interactively pick the active inference model
   automaton --init         Initialize wallet and config directory
-  automaton --provision    Provision Conway API key via SIWE
+  automaton --provision    Provision Conway API key via SIWE (optional)
   automaton --status       Show current automaton status
   automaton --version      Show version
   automaton --help         Show this help
 
 Environment:
-  CONWAY_API_URL           Conway API URL (default: https://api.conway.tech)
-  CONWAY_API_KEY           Conway API key (overrides config)
-  OLLAMA_BASE_URL          Ollama base URL (overrides config, e.g. http://localhost:11434)
+  OPENAI_API_KEY           OpenAI API key (primary inference provider)
+  ANTHROPIC_API_KEY        Anthropic API key (alternative inference provider)
+  OLLAMA_BASE_URL          Ollama base URL (local inference, e.g. http://localhost:11434)
+  CONWAY_API_URL           Conway API URL (optional, for cloud features)
+  CONWAY_API_KEY           Conway API key (optional, overrides config)
 `);
     process.exit(0);
   }
@@ -84,11 +87,13 @@ Environment:
   }
 
   if (args.includes("--provision")) {
+    logger.info("Provisioning Conway API key (optional — only needed for cloud features)...");
     try {
       const result = await provision();
       logger.info(JSON.stringify(result));
     } catch (err: any) {
       logger.error(`Provision failed: ${err.message}`);
+      logger.info("This is optional. Set OPENAI_API_KEY or ANTHROPIC_API_KEY for local inference.");
       process.exit(1);
     }
     process.exit(0);
@@ -182,10 +187,16 @@ async function run(): Promise<void> {
 
   // Load wallet
   const { account } = await getWallet();
-  const apiKey = config.conwayApiKey || loadApiKeyFromConfig();
-  if (!apiKey) {
-    logger.error("No API key found. Run: automaton --provision");
+  const apiKey = config.conwayApiKey || loadApiKeyFromConfig() || "";
+
+  // Phase 3: Conway API key is no longer required.
+  // The agent can run with just provider keys (OpenAI/Anthropic/Ollama).
+  if (!apiKey && !hasInferenceProvider()) {
+    logger.error("No API keys found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY, or run: automaton --setup");
     process.exit(1);
+  }
+  if (!apiKey) {
+    logger.info(`[${new Date().toISOString()}] Running in local mode (no Conway API key).`);
   }
 
   // Initialize database
@@ -229,8 +240,9 @@ async function run(): Promise<void> {
   });
 
   // Register automaton identity (one-time, immutable)
+  // Phase 3: Only attempt registration if we have a Conway API key
   const registrationState = db.getIdentity("conwayRegistrationStatus");
-  if (registrationState !== "registered") {
+  if (apiKey && registrationState !== "registered") {
     try {
       const genesisPromptHash = config.genesisPrompt
         ? keccak256(toHex(config.genesisPrompt))
@@ -317,35 +329,18 @@ async function run(): Promise<void> {
     logger.warn(`[${new Date().toISOString()}] State repo init failed: ${err.message}`);
   }
 
-  // Bootstrap topup: buy minimum credits ($5) from USDC so the agent can start.
-  // The agent decides larger topups itself via the topup_credits tool.
+  // Phase 4: Check USDC balance at startup (no credit conversion needed)
   try {
-    let bootstrapTimer: ReturnType<typeof setTimeout>;
-    const bootstrapTimeout = new Promise<null>((_, reject) => {
-      bootstrapTimer = setTimeout(() => reject(new Error("bootstrap topup timed out")), 15_000);
-    });
-    try {
-      await Promise.race([
-        (async () => {
-          const creditsCents = await conway.getCreditsBalance().catch(() => 0);
-          const topupResult = await bootstrapTopup({
-            apiUrl: config.conwayApiUrl,
-            account,
-            creditsCents,
-          });
-          if (topupResult?.success) {
-            logger.info(
-              `[${new Date().toISOString()}] Bootstrap topup: +$${topupResult.amountUsd} credits from USDC`,
-            );
-          }
-        })(),
-        bootstrapTimeout,
-      ]);
-    } finally {
-      clearTimeout(bootstrapTimer!);
+    const balanceResult = await getOnChainBalance(account.address);
+    if (balanceResult.ok) {
+      logger.info(
+        `[${new Date().toISOString()}] USDC balance: $${balanceResult.balanceUsd.toFixed(2)} on Base`,
+      );
+    } else {
+      logger.warn(`[${new Date().toISOString()}] USDC balance check failed: ${balanceResult.error}`);
     }
   } catch (err: any) {
-    logger.warn(`[${new Date().toISOString()}] Bootstrap topup skipped: ${err.message}`);
+    logger.warn(`[${new Date().toISOString()}] USDC balance check skipped: ${err.message}`);
   }
 
   // Start heartbeat daemon (Phase 1.1: DurableScheduler)

@@ -5,7 +5,7 @@ import type { AutomatonConfig, TreasuryPolicy } from "../types.js";
 import { DEFAULT_TREASURY_POLICY } from "../types.js";
 import type { Address } from "viem";
 import { getWallet, getAutomatonDir } from "../identity/wallet.js";
-import { provision } from "../identity/provision.js";
+import { saveProviderKeys } from "../local/auth.js";
 import { createConfig, saveConfig } from "../config.js";
 import { writeDefaultHeartbeatConfig } from "../heartbeat/config.js";
 import { showBanner } from "./banner.js";
@@ -35,52 +35,10 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   }
   console.log(chalk.dim(`  Private key stored at: ${getAutomatonDir()}/wallet.json\n`));
 
-  // ─── 2. Provision API key ─────────────────────────────────────
-  console.log(chalk.cyan("  [2/6] Provisioning Conway API key (SIWE)..."));
-  let apiKey = "";
-  try {
-    const result = await provision();
-    apiKey = result.apiKey;
-    console.log(chalk.green(`  API key provisioned: ${result.keyPrefix}...\n`));
-  } catch (err: any) {
-    console.log(chalk.yellow(`  Auto-provision failed: ${err.message}`));
-    console.log(chalk.yellow("  You can enter a key manually, or press Enter to skip.\n"));
-    const manual = await promptOptional("Conway API key (cnwy_k_..., optional)");
-    if (manual) {
-      apiKey = manual;
-      // Save to config.json for loadApiKeyFromConfig()
-      const configDir = getAutomatonDir();
-      if (!fs.existsSync(configDir)) {
-        fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
-      }
-      fs.writeFileSync(
-        path.join(configDir, "config.json"),
-        JSON.stringify({ apiKey, walletAddress: account.address, provisionedAt: new Date().toISOString() }, null, 2),
-        { mode: 0o600 },
-      );
-      console.log(chalk.green("  API key saved.\n"));
-    }
-  }
+  // ─── 2. Inference provider keys ─────────────────────────────────
+  console.log(chalk.cyan("  [2/6] Inference provider keys"));
+  console.log(chalk.dim("  Configure at least one provider to enable inference.\n"));
 
-  if (!apiKey) {
-    console.log(chalk.yellow("  No API key set. The automaton will have limited functionality.\n"));
-  }
-
-  // ─── 3. Interactive questions ─────────────────────────────────
-  console.log(chalk.cyan("  [3/6] Setup questions\n"));
-
-  const name = await promptRequired("What do you want to name your automaton?");
-  console.log(chalk.green(`  Name: ${name}\n`));
-
-  const genesisPrompt = await promptMultiline("Enter the genesis prompt (system prompt) for your automaton.");
-  console.log(chalk.green(`  Genesis prompt set (${genesisPrompt.length} chars)\n`));
-
-  console.log(chalk.dim(`  Your automaton's address is ${account.address}`));
-  console.log(chalk.dim("  Now enter YOUR wallet address (the human creator/owner).\n"));
-  const creatorAddress = await promptAddress("Creator wallet address (0x...)");
-  console.log(chalk.green(`  Creator: ${creatorAddress}\n`));
-
-  console.log(chalk.white("  Optional: bring your own inference provider keys (press Enter to skip)."));
   const openaiApiKey = await promptOptional("OpenAI API key (sk-..., optional)");
   if (openaiApiKey && !openaiApiKey.startsWith("sk-")) {
     console.log(chalk.yellow("  Warning: OpenAI keys usually start with sk-. Saving anyway."));
@@ -97,6 +55,9 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     console.log(chalk.green(`  Ollama URL saved: ${ollamaBaseUrl}`));
   }
 
+  // Optional: Conway API key for cloud features
+  const conwayApiKey = await promptOptional("Conway API key (cnwy_k_..., optional — for cloud features)");
+
   if (openaiApiKey || anthropicApiKey || ollamaBaseUrl) {
     const providers = [
       openaiApiKey ? "OpenAI" : null,
@@ -105,8 +66,32 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     ].filter(Boolean).join(", ");
     console.log(chalk.green(`  Provider keys/URLs saved: ${providers}\n`));
   } else {
-    console.log(chalk.dim("  No provider keys set. Inference will default to Conway.\n"));
+    console.log(chalk.yellow("  No provider keys set. Set OPENAI_API_KEY or ANTHROPIC_API_KEY env vars before running.\n"));
   }
+
+  // Persist keys to ~/.automaton/keys.json
+  saveProviderKeys({
+    openaiApiKey: openaiApiKey || undefined,
+    anthropicApiKey: anthropicApiKey || undefined,
+    ollamaBaseUrl,
+    conwayApiKey: conwayApiKey || undefined,
+  });
+
+  const apiKey = conwayApiKey || "";
+
+  // ─── 3. Interactive questions ─────────────────────────────────
+  console.log(chalk.cyan("  [3/6] Setup questions\n"));
+
+  const name = await promptRequired("What do you want to name your automaton?");
+  console.log(chalk.green(`  Name: ${name}\n`));
+
+  const genesisPrompt = await promptMultiline("Enter the genesis prompt (system prompt) for your automaton.");
+  console.log(chalk.green(`  Genesis prompt set (${genesisPrompt.length} chars)\n`));
+
+  console.log(chalk.dim(`  Your automaton's address is ${account.address}`));
+  console.log(chalk.dim("  Now enter YOUR wallet address (the human creator/owner).\n"));
+  const creatorAddress = await promptAddress("Creator wallet address (0x...)");
+  console.log(chalk.green(`  Creator: ${creatorAddress}\n`));
 
   // ─── Financial Safety Policy ─────────────────────────────────
   console.log(chalk.cyan("  Financial Safety Policy"));
@@ -138,9 +123,9 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   console.log(chalk.cyan("  [4/6] Detecting environment..."));
   const env = detectEnvironment();
   if (env.sandboxId) {
-    console.log(chalk.green(`  Conway sandbox detected: ${env.sandboxId}\n`));
+    console.log(chalk.green(`  Sandbox detected: ${env.sandboxId}\n`));
   } else {
-    console.log(chalk.dim(`  Environment: ${env.type} (no sandbox detected)\n`));
+    console.log(chalk.dim(`  Environment: ${env.type} (local execution mode)\n`));
   }
 
   // ─── 5. Write config + heartbeat + SOUL.md + skills ───────────
@@ -184,7 +169,7 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   // Default skills
   const skillsDir = config.skillsDir || "~/.automaton/skills";
   installDefaultSkills(skillsDir);
-  console.log(chalk.green("  Default skills installed (conway-compute, conway-payments, survival)\n"));
+  console.log(chalk.green("  Default skills installed\n"));
 
   // ─── 6. Funding guidance ──────────────────────────────────────
   console.log(chalk.cyan("  [6/6] Funding\n"));
@@ -205,13 +190,10 @@ function showFundingPanel(address: string): void {
   console.log(chalk.cyan(`  │${" ".repeat(w)}│`));
   console.log(chalk.cyan(`  │${pad(`  Address: ${short}`, w)}│`));
   console.log(chalk.cyan(`  │${" ".repeat(w)}│`));
-  console.log(chalk.cyan(`  │${pad("  1. Transfer Conway credits", w)}│`));
-  console.log(chalk.cyan(`  │${pad("     conway credits transfer <address> <amount>", w)}│`));
+  console.log(chalk.cyan(`  │${pad("  1. Send USDC on Base directly to the address above", w)}│`));
   console.log(chalk.cyan(`  │${" ".repeat(w)}│`));
-  console.log(chalk.cyan(`  │${pad("  2. Send USDC on Base directly to the address above", w)}│`));
-  console.log(chalk.cyan(`  │${" ".repeat(w)}│`));
-  console.log(chalk.cyan(`  │${pad("  3. Fund via Conway Cloud dashboard", w)}│`));
-  console.log(chalk.cyan(`  │${pad("     https://app.conway.tech", w)}│`));
+  console.log(chalk.cyan(`  │${pad("  2. Set OPENAI_API_KEY or ANTHROPIC_API_KEY env vars", w)}│`));
+  console.log(chalk.cyan(`  │${pad("     for direct inference (no credits needed)", w)}│`));
   console.log(chalk.cyan(`  │${" ".repeat(w)}│`));
   console.log(chalk.cyan(`  │${pad("  The automaton will start now. Fund it anytime —", w)}│`));
   console.log(chalk.cyan(`  │${pad("  the survival system handles zero-credit gracefully.", w)}│`));

@@ -1,26 +1,31 @@
 /**
- * Conway Credits Management
+ * Credits Management — Migration Wrapper
  *
- * Monitors the automaton's compute credit balance and triggers
- * survival mode transitions.
+ * MIGRATION NOTE (Phase 4): Delegates entirely to src/local/treasury.ts.
+ * Survival tiers are now based on USDC balance and daily burn rate,
+ * not Conway metered credits.
+ *
+ * Exports are kept for backward compatibility with callers.
  */
 
 import type {
-  ConwayClient,
   FinancialState,
   SurvivalTier,
 } from "../types.js";
-import { SURVIVAL_THRESHOLDS } from "../types.js";
+import {
+  getSurvivalTierFromBalance,
+  formatBalance,
+} from "../local/treasury.js";
 
 /**
- * Check the current financial state of the automaton.
+ * Check the current financial state.
+ * Phase 4: creditsCents now represents the USDC balance in cents.
  */
 export async function checkFinancialState(
-  conway: ConwayClient,
+  _conway: unknown,
   usdcBalance: number,
 ): Promise<FinancialState> {
-  const creditsCents = await conway.getCreditsBalance();
-
+  const creditsCents = Math.floor(usdcBalance * 100);
   return {
     creditsCents,
     usdcBalance,
@@ -29,23 +34,17 @@ export async function checkFinancialState(
 }
 
 /**
- * Determine the survival tier based on current credits.
- * Thresholds are checked in descending order: high > normal > low_compute > critical > dead.
- *
- * Zero credits = "critical" (broke but alive — can still accept funding, send distress).
- * Only negative balance (API-confirmed debt) = "dead".
+ * Determine the survival tier based on balance in cents.
+ * Phase 4: Delegates to treasury's USDC-based tier calculation.
+ * Without daily burn data, uses absolute thresholds.
  */
 export function getSurvivalTier(creditsCents: number): SurvivalTier {
-  if (creditsCents > SURVIVAL_THRESHOLDS.high) return "high";
-  if (creditsCents > SURVIVAL_THRESHOLDS.normal) return "normal";
-  if (creditsCents > SURVIVAL_THRESHOLDS.low_compute) return "low_compute";
-  if (creditsCents >= 0) return "critical";
-  return "dead";
+  return getSurvivalTierFromBalance(creditsCents);
 }
 
 /**
- * Format a credit amount for display.
+ * Format a balance for display.
  */
 export function formatCredits(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  return formatBalance(cents);
 }

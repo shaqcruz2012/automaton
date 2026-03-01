@@ -1,8 +1,9 @@
 /**
  * Resource Monitor
  *
- * Continuously monitors the automaton's resources and triggers
- * survival mode transitions when needed.
+ * Phase 4: Monitors the automaton's resources using the local treasury
+ * (USDC on Base) instead of Conway credits.
+ * Survival tiers are derived from on-chain USDC balance + daily burn rate.
  */
 
 import type {
@@ -13,8 +14,12 @@ import type {
   FinancialState,
   SurvivalTier,
 } from "../types.js";
-import { getSurvivalTier, formatCredits } from "../conway/credits.js";
-import { getUsdcBalance } from "../conway/x402.js";
+import {
+  getOnChainBalance,
+  getSurvivalTierFromBalance,
+  formatBalance,
+} from "../local/treasury.js";
+import { estimateDailyBurnCents } from "../local/accounting.js";
 
 export interface ResourceStatus {
   financial: FinancialState;
@@ -26,23 +31,26 @@ export interface ResourceStatus {
 
 /**
  * Check all resources and return current status.
+ * Phase 4: Uses on-chain USDC balance as the source of truth for credits.
  */
 export async function checkResources(
   identity: AutomatonIdentity,
   conway: ConwayClient,
   db: AutomatonDatabase,
 ): Promise<ResourceStatus> {
-  // Check credits
-  let creditsCents = 0;
+  // Phase 4: Read USDC balance on-chain as the primary balance
+  let usdcBalance = 0;
+  let balanceCents = 0;
   try {
-    creditsCents = await conway.getCreditsBalance();
+    const result = await getOnChainBalance(identity.address);
+    if (result.ok) {
+      usdcBalance = result.balanceUsd;
+      balanceCents = result.balanceCents;
+    }
   } catch {}
 
-  // Check USDC
-  let usdcBalance = 0;
-  try {
-    usdcBalance = await getUsdcBalance(identity.address);
-  } catch {}
+  // creditsCents now equals the USDC balance in cents
+  const creditsCents = balanceCents;
 
   // Check sandbox health
   let sandboxHealthy = true;
@@ -59,7 +67,13 @@ export async function checkResources(
     lastChecked: new Date().toISOString(),
   };
 
-  const tier = getSurvivalTier(creditsCents);
+  // Estimate daily burn from the expense ledger
+  let dailyBurnCents = 0;
+  try {
+    dailyBurnCents = estimateDailyBurnCents(db.raw);
+  } catch {}
+
+  const tier = getSurvivalTierFromBalance(creditsCents, dailyBurnCents);
   const prevTierStr = db.getKV("current_tier");
   const previousTier = (prevTierStr as SurvivalTier) || null;
   const tierChanged = previousTier !== null && previousTier !== tier;
@@ -85,7 +99,7 @@ export async function checkResources(
 export function formatResourceReport(status: ResourceStatus): string {
   const lines = [
     `=== RESOURCE STATUS ===`,
-    `Credits: ${formatCredits(status.financial.creditsCents)}`,
+    `Balance: ${formatBalance(status.financial.creditsCents)}`,
     `USDC: ${status.financial.usdcBalance.toFixed(6)}`,
     `Tier: ${status.tier}${status.tierChanged ? ` (changed from ${status.previousTier})` : ""}`,
     `Sandbox: ${status.sandboxHealthy ? "healthy" : "UNHEALTHY"}`,

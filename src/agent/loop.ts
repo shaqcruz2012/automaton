@@ -36,7 +36,7 @@ import {
 } from "./tools.js";
 import { sanitizeInput } from "./injection-defense.js";
 import { getSurvivalTier } from "../conway/credits.js";
-import { getUsdcBalance } from "../conway/x402.js";
+import { getOnChainBalance } from "../local/treasury.js";
 import {
   claimInboxMessages,
   markInboxProcessed,
@@ -1000,25 +1000,33 @@ let _lastKnownCredits = 0;
 let _lastKnownUsdc = 0;
 
 async function getFinancialState(
-  conway: ConwayClient,
+  _conway: ConwayClient,
   address: string,
   db?: AutomatonDatabase,
 ): Promise<FinancialState> {
   let creditsCents = _lastKnownCredits;
   let usdcBalance = _lastKnownUsdc;
 
+  // Phase 4: Single on-chain USDC balance replaces both credits and USDC
   try {
-    creditsCents = await conway.getCreditsBalance();
-    if (creditsCents > 0) _lastKnownCredits = creditsCents;
+    const result = await getOnChainBalance(address as `0x${string}`);
+    if (result.ok) {
+      creditsCents = result.balanceCents;
+      usdcBalance = result.balanceUsd;
+      if (creditsCents > 0) _lastKnownCredits = creditsCents;
+      if (usdcBalance > 0) _lastKnownUsdc = usdcBalance;
+    } else {
+      throw new Error(result.error || "Balance fetch failed");
+    }
   } catch (error) {
-    logger.error("Credits balance fetch failed", error instanceof Error ? error : undefined);
+    logger.error("USDC balance fetch failed", error instanceof Error ? error : undefined);
     // Use last known balance from KV, not zero
     if (db) {
       const cached = db.getKV("last_known_balance");
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          logger.warn("Balance API failed, using cached balance");
+          logger.warn("Balance fetch failed, using cached balance");
           return {
             creditsCents: parsed.creditsCents ?? 0,
             usdcBalance: parsed.usdcBalance ?? 0,
@@ -1030,19 +1038,12 @@ async function getFinancialState(
       }
     }
     // No cache available -- return conservative non-zero sentinel
-    logger.error("Balance API failed, no cache available");
+    logger.error("Balance fetch failed, no cache available");
     return {
       creditsCents: -1,
       usdcBalance: -1,
       lastChecked: new Date().toISOString(),
     };
-  }
-
-  try {
-    usdcBalance = await getUsdcBalance(address as `0x${string}`);
-    if (usdcBalance > 0) _lastKnownUsdc = usdcBalance;
-  } catch (error) {
-    logger.error("USDC balance fetch failed", error instanceof Error ? error : undefined);
   }
 
   // Cache successful balance reads

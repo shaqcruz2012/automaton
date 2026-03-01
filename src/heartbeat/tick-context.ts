@@ -1,9 +1,9 @@
 /**
  * Tick Context
  *
- * Builds a shared context for each heartbeat tick.
- * Fetches credit balance ONCE per tick, derives survival tier,
- * and shares across all tasks to avoid redundant API calls.
+ * Phase 4: Builds a shared context for each heartbeat tick.
+ * Fetches USDC balance ONCE per tick, derives survival tier from
+ * on-chain balance + daily burn rate.
  */
 
 import type BetterSqlite3 from "better-sqlite3";
@@ -13,8 +13,8 @@ import type {
   HeartbeatConfig,
   TickContext,
 } from "../types.js";
-import { getSurvivalTier } from "../conway/credits.js";
-import { getUsdcBalance } from "../conway/x402.js";
+import { getOnChainBalance, getSurvivalTierFromBalance } from "../local/treasury.js";
+import { estimateDailyBurnCents } from "../local/accounting.js";
 import { createLogger } from "../observability/logger.js";
 
 type DatabaseType = BetterSqlite3.Database;
@@ -31,11 +31,8 @@ function generateTickId(): string {
 /**
  * Build a TickContext for the current tick.
  *
- * - Generates a unique tickId
- * - Fetches credit balance ONCE via conway.getCreditsBalance()
- * - Fetches USDC balance ONCE via getUsdcBalance()
- * - Derives survivalTier from credit balance
- * - Reads lowComputeMultiplier from config
+ * Phase 4: Uses on-chain USDC balance as the credit balance.
+ * Survival tier derived from USDC balance + daily burn rate.
  */
 export async function buildTickContext(
   db: DatabaseType,
@@ -46,24 +43,28 @@ export async function buildTickContext(
   const tickId = generateTickId();
   const startedAt = new Date();
 
-  // Fetch balances ONCE
+  // Phase 4: Fetch USDC balance on-chain as the primary balance
   let creditBalance = 0;
-  try {
-    creditBalance = await conway.getCreditsBalance();
-  } catch (err: any) {
-    logger.error("Failed to fetch credit balance", err instanceof Error ? err : undefined);
-  }
-
   let usdcBalance = 0;
   if (walletAddress) {
     try {
-      usdcBalance = await getUsdcBalance(walletAddress);
+      const result = await getOnChainBalance(walletAddress);
+      if (result.ok) {
+        usdcBalance = result.balanceUsd;
+        creditBalance = result.balanceCents;
+      }
     } catch (err: any) {
       logger.error("Failed to fetch USDC balance", err instanceof Error ? err : undefined);
     }
   }
 
-  const survivalTier = getSurvivalTier(creditBalance);
+  // Estimate daily burn for tier calculation
+  let dailyBurnCents = 0;
+  try {
+    dailyBurnCents = estimateDailyBurnCents(db);
+  } catch {}
+
+  const survivalTier = getSurvivalTierFromBalance(creditBalance, dailyBurnCents);
   const lowComputeMultiplier = config.lowComputeMultiplier ?? 4;
 
   return {

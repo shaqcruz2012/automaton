@@ -147,51 +147,22 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
   },
 
   check_usdc_balance: async (ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
-    // Use ctx.usdcBalance instead of calling getUsdcBalance()
+    // Phase 4: USDC balance IS the credit balance (no conversion needed)
     const balance = ctx.usdcBalance;
-    const credits = ctx.creditBalance;
+    const balanceCents = ctx.creditBalance;
 
     taskCtx.db.setKV("last_usdc_check", JSON.stringify({
       balance,
-      credits,
+      balanceCents,
+      tier: ctx.survivalTier,
       timestamp: new Date().toISOString(),
     }));
 
-    const MIN_TOPUP_USD = 5;
-    if (balance >= MIN_TOPUP_USD && (ctx.survivalTier === "critical" || ctx.survivalTier === "dead")) {
-      // Cooldown: don't attempt more than once every 5 minutes to avoid
-      // hammering the payment endpoint on repeated ticks.
-      const AUTO_TOPUP_COOLDOWN_MS = 5 * 60 * 1000;
-      const lastAttempt = taskCtx.db.getKV("last_auto_topup_attempt");
-      if (lastAttempt && Date.now() - new Date(lastAttempt).getTime() < AUTO_TOPUP_COOLDOWN_MS) {
-        return { shouldWake: false };
-      }
-
-      taskCtx.db.setKV("last_auto_topup_attempt", new Date().toISOString());
-
-      const { bootstrapTopup } = await import("../conway/topup.js");
-      const result = await bootstrapTopup({
-        apiUrl: taskCtx.config.conwayApiUrl,
-        account: taskCtx.identity.account,
-        creditsCents: credits,
-      });
-
-      if (result?.success) {
-        logger.info(
-          `Auto-topup successful: $${result.amountUsd} USD → ${result.creditsCentsAdded} credit cents`,
-        );
-        return {
-          shouldWake: true,
-          message: `Auto-topped up $${result.amountUsd} in credits (was $${(credits / 100).toFixed(2)}). USDC remaining: ~$${(balance - result.amountUsd).toFixed(2)}.`,
-        };
-      }
-
-      // Topup failed — wake the agent so it can handle it manually
-      const errMsg = result?.error ?? "unknown error";
-      logger.warn(`Auto-topup failed: ${errMsg}`);
+    // Wake the agent if balance is critically low so it can take action
+    if (ctx.survivalTier === "critical" || ctx.survivalTier === "dead") {
       return {
         shouldWake: true,
-        message: `Low credits ($${(credits / 100).toFixed(2)}) with USDC available ($${balance.toFixed(2)}) but auto-topup failed: ${errMsg}. Use topup_credits to retry.`,
+        message: `Low balance: $${balance.toFixed(2)} USDC (tier: ${ctx.survivalTier}). Need funding at ${taskCtx.identity.address}.`,
       };
     }
 
@@ -762,11 +733,17 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         `(balance: ${creditsCents}¢, threshold: ${taxConfig.thresholdCents}¢, rate: ${taxConfig.taxRate}%)`,
       );
 
-      await taskCtx.conway.transferCredits(
-        creatorAddress,
-        taxAmount,
-        `Creator tax: ${taxConfig.taxRate}% of ${surplus}¢ surplus above $${(taxConfig.thresholdCents / 100).toFixed(2)} threshold`,
+      // Phase 4: Use USDC transfer instead of Conway credit transfer
+      const { transferUSDC } = await import("../local/treasury.js");
+      const amountUsd = taxAmount / 100;
+      const result = await transferUSDC(
+        taskCtx.identity.account,
+        creatorAddress as `0x${string}`,
+        amountUsd,
       );
+      if (!result.success) {
+        throw new Error(result.error || "USDC transfer failed");
+      }
 
       // Record the transfer
       taskCtx.db.setKV("creator_tax_last_transfer", new Date().toISOString());
