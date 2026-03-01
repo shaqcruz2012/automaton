@@ -447,7 +447,7 @@ export async function runAgentLoop(
         "check_inference_spending",
         "orchestrator_status", "list_goals", "get_plan",
       ]);
-      const allTurns = db.getRecentTurns(20);
+      const allTurns = db.getRecentTurns(10);
       const meaningfulTurns = allTurns.filter((t) => {
         if (t.toolCalls.length === 0) return true; // text-only turns are meaningful
         return t.toolCalls.some((tc) => !IDLE_ONLY_TOOLS.has(tc.name));
@@ -648,8 +648,8 @@ export async function runAgentLoop(
       }
 
       // Fix 8: Context compression — periodically compress conversation history
-      // to prevent context window overflow. Runs every 5 turns.
-      if (compressionEngine && contextManager && cycleTurnCount % 5 === 0) {
+      // to prevent context window overflow. Runs every 3 turns for budget efficiency.
+      if (compressionEngine && contextManager && cycleTurnCount % 3 === 0) {
         try {
           const utilization = contextManager.getUtilization();
           if (utilization.utilizationPercent > 0.7) {

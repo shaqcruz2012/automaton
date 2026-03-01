@@ -858,19 +858,19 @@ export const MAX_CHILDREN = 3;
 // ─── Token Budget ───────────────────────────────────────────────
 
 export interface TokenBudget {
-  total: number;                     // default: 100_000
-  systemPrompt: number;             // default: 20_000 (20%)
-  recentTurns: number;              // default: 50_000 (50%)
-  toolResults: number;              // default: 20_000 (20%)
-  memoryRetrieval: number;          // default: 10_000 (10%)
+  total: number;                     // default: 60_000
+  systemPrompt: number;             // default: 12_000 (20%)
+  recentTurns: number;              // default: 30_000 (50%)
+  toolResults: number;              // default: 10_000 (17%)
+  memoryRetrieval: number;          // default: 8_000  (13%)
 }
 
 export const DEFAULT_TOKEN_BUDGET: TokenBudget = {
-  total: 100_000,
-  systemPrompt: 20_000,
-  recentTurns: 50_000,
-  toolResults: 20_000,
-  memoryRetrieval: 10_000,
+  total: 60_000,
+  systemPrompt: 12_000,
+  recentTurns: 30_000,
+  toolResults: 10_000,
+  memoryRetrieval: 8_000,
 };
 
 // ─── Phase 1: Runtime Reliability ───────────────────────────────

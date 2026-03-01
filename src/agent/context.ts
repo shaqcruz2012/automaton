@@ -17,13 +17,13 @@ import type {
 import { DEFAULT_TOKEN_BUDGET } from "../types.js";
 import { createTokenCounter } from "../memory/context-manager.js";
 
-const MAX_CONTEXT_TURNS = 20;
-const SUMMARY_THRESHOLD = 15;
+const MAX_CONTEXT_TURNS = 10;
+const SUMMARY_THRESHOLD = 8;
 
 let tokenCounter: ReturnType<typeof createTokenCounter> | null = null;
 
 /** Maximum size for individual tool results in characters */
-export const MAX_TOOL_RESULT_SIZE = 10_000;
+export const MAX_TOOL_RESULT_SIZE = 6_000;
 
 // Re-export for external use
 export type { TokenBudget };
