@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_name }} — Invoice/Receipt → JSON API</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>{{ app_name }}</h1>
+      <p class="subtitle">A minimal, privacy-forward invoice/receipt parsing API (MVP: plain text → structured JSON).</p>
+    </header>
+
+    <section>
+      <h2>Endpoints</h2>
+      <ul>
+        <li><code>GET /health</code> — service health</li>
+        <li><code>POST /parse</code> — parse receipt/invoice text (multipart form: <code>text</code> or <code>file</code>)</li>
+        <li><a href="/docs">OpenAPI docs</a></li>
+      </ul>
+
+      <h3>Quick curl</h3>
+      <pre><code>curl -s -X POST http://localhost:8000/parse \
+  -F "text=ACME Supplies\n2026-03-01\nWidget 9.99\nTax 0.80\nTotal 10.79" | python -m json.tool</code></pre>
+    </section>
+
+    <section>
+      <h2>Pricing suggestion (honest MVP)</h2>
+      <ul>
+        <li><strong>Free</strong>: 25 parses/month for testing</li>
+        <li><strong>Starter</strong>: $9/month for 500 parses</li>
+        <li><strong>Pro</strong>: $29/month for 5,000 parses</li>
+        <li><strong>Overage</strong>: $0.01/parse</li>
+      </ul>
+      <p class="fineprint">Heuristic extraction only; always review outputs before accounting/tax use.</p>
+    </section>
+
+    <section>
+      <h2>Data handling & privacy</h2>
+      <ul>
+        <li>No document storage by default (processed in-memory only).</li>
+        <li>Logs only minimal metadata (request size, content type, short hash prefix) for debugging/abuse prevention.</li>
+        <li>No selling of customer data; no training on customer documents unless you explicitly opt in (future feature).</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Contact</h2>
+      <p>Email: <a href="mailto:hello@example.com">hello@example.com</a> (replace before deploying)</p>
+    </section>
+
+    <footer>
+      <p class="fineprint">© {{ app_name }} — Not legal/tax advice.</p>
+    </footer>
+  </main>
+</body>
+</html>

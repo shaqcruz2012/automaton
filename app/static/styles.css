@@ -1,0 +1,10 @@
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#0b1020;color:#eaf0ff}
+.container{max-width:900px;margin:0 auto;padding:32px}
+a{color:#9ad0ff}
+code,pre{background:#121a33;border:1px solid #22305f;border-radius:8px}
+code{padding:2px 6px}
+pre{padding:12px;overflow:auto}
+.subtitle{opacity:.9}
+.fineprint{opacity:.8;font-size:.95rem}
+h1,h2,h3{margin-top:0}
+section{margin:24px 0;padding:16px;border:1px solid #22305f;border-radius:12px;background:#0f1730}
