@@ -307,99 +307,27 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     }
   },
 
-  // === Phase 2.3: Model Registry Refresh ===
-  refresh_models: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
-    try {
-      const models = await taskCtx.conway.listModels();
-      if (models.length > 0) {
-        const { ModelRegistry } = await import("../inference/registry.js");
-        const registry = new ModelRegistry(taskCtx.db.raw);
-        registry.initialize(); // seed if empty
-        registry.refreshFromApi(models);
-        taskCtx.db.setKV("last_model_refresh", JSON.stringify({
-          count: models.length,
-          timestamp: new Date().toISOString(),
-        }));
-      }
-    } catch (error) {
-      logger.error("refresh_models failed", error instanceof Error ? error : undefined);
-    }
+  // === Phase 5b: Model registry is now static/local — no Conway refresh needed ===
+  refresh_models: async (_ctx: TickContext, _taskCtx: HeartbeatLegacyContext) => {
+    // Phase 5b: Model registry is local. No Conway API call needed.
     return { shouldWake: false };
   },
 
-  // === Phase 3.1: Child Health Check ===
-  check_child_health: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
-    try {
-      const { ChildLifecycle } = await import("../replication/lifecycle.js");
-      const { ChildHealthMonitor } = await import("../replication/health.js");
-      const lifecycle = new ChildLifecycle(taskCtx.db.raw);
-      const monitor = new ChildHealthMonitor(taskCtx.db.raw, taskCtx.conway, lifecycle);
-      const results = await monitor.checkAllChildren();
-
-      const unhealthy = results.filter((r) => !r.healthy);
-      if (unhealthy.length > 0) {
-        for (const r of unhealthy) {
-          logger.warn(`Child ${r.childId} unhealthy: ${r.issues.join(", ")}`);
-        }
-        return {
-          shouldWake: true,
-          message: `${unhealthy.length} child(ren) unhealthy: ${unhealthy.map((r) => r.childId.slice(0, 8)).join(", ")}`,
-        };
-      }
-    } catch (error) {
-      logger.error("check_child_health failed", error instanceof Error ? error : undefined);
-    }
+  // === Phase 5b: Child health uses local sandbox — no Conway sandbox API ===
+  check_child_health: async (_ctx: TickContext, _taskCtx: HeartbeatLegacyContext) => {
+    // Phase 5b: Skipped — local sandbox mode, no Conway sandbox health API.
     return { shouldWake: false };
   },
 
-  // === Phase 3.1: Prune Dead Children ===
-  prune_dead_children: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
-    try {
-      const { ChildLifecycle } = await import("../replication/lifecycle.js");
-      const { SandboxCleanup } = await import("../replication/cleanup.js");
-      const { pruneDeadChildren } = await import("../replication/lineage.js");
-      const lifecycle = new ChildLifecycle(taskCtx.db.raw);
-      const cleanup = new SandboxCleanup(taskCtx.conway, lifecycle, taskCtx.db.raw);
-      const pruned = await pruneDeadChildren(taskCtx.db, cleanup);
-      if (pruned > 0) {
-        logger.info(`Pruned ${pruned} dead children`);
-      }
-    } catch (error) {
-      logger.error("prune_dead_children failed", error instanceof Error ? error : undefined);
-    }
+  // === Phase 5b: Child pruning uses local sandbox — no Conway sandbox API ===
+  prune_dead_children: async (_ctx: TickContext, _taskCtx: HeartbeatLegacyContext) => {
+    // Phase 5b: Skipped — local sandbox mode, no Conway sandbox cleanup API.
     return { shouldWake: false };
   },
 
+  // === Phase 5b: Health check uses local process — no Conway sandbox exec ===
   health_check: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
-    // Check that the sandbox is healthy
-    try {
-      const result = await taskCtx.conway.exec("echo alive", 5000);
-      if (result.exitCode !== 0) {
-        // Only wake on first failure, not repeated failures
-        const prevStatus = taskCtx.db.getKV("health_check_status");
-        if (prevStatus !== "failing") {
-          taskCtx.db.setKV("health_check_status", "failing");
-          return {
-            shouldWake: true,
-            message: "Health check failed: sandbox exec returned non-zero",
-          };
-        }
-        return { shouldWake: false };
-      }
-    } catch (err: any) {
-      // Only wake on first failure, not repeated failures
-      const prevStatus = taskCtx.db.getKV("health_check_status");
-      if (prevStatus !== "failing") {
-        taskCtx.db.setKV("health_check_status", "failing");
-        return {
-          shouldWake: true,
-          message: `Health check failed: ${err.message}`,
-        };
-      }
-      return { shouldWake: false };
-    }
-
-    // Health check passed — clear failure state
+    // Phase 5b: Local mode — agent is alive if heartbeat is running.
     taskCtx.db.setKV("health_check_status", "ok");
     taskCtx.db.setKV("last_health_check", new Date().toISOString());
     return { shouldWake: false };

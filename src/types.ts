@@ -80,7 +80,7 @@ export interface CreatorTaxConfig {
 }
 
 export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
-  conwayApiUrl: "https://api.conway.tech",
+  conwayApiUrl: "",
   inferenceModel: "gpt-5.2",
   maxTokensPerTurn: 4096,
   heartbeatConfigPath: "~/.automaton/heartbeat.yml",
@@ -91,7 +91,7 @@ export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
   maxChildren: 3,
   maxTurnsPerCycle: 25,
   childSandboxMemoryMb: 1024,
-  socialRelayUrl: "https://social.conway.tech",
+  socialRelayUrl: undefined,
 };
 
 // ─── Agent State ─────────────────────────────────────────────────
@@ -586,7 +586,7 @@ export const DEFAULT_TREASURY_POLICY: TreasuryPolicy = {
   maxDailyTransferCents: 25000,
   minimumReserveCents: 1000,
   maxX402PaymentCents: 100,
-  x402AllowedDomains: ['conway.tech'],
+  x402AllowedDomains: [],
   transferCooldownMs: 0,
   maxTransfersPerTurn: 2,
   maxInferenceDailyCents: 50000,

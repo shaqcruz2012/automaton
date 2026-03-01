@@ -19,7 +19,7 @@ import { loadApiKey, saveProviderKeys } from "../local/auth.js";
 
 const httpClient = new ResilientHttpClient();
 
-const DEFAULT_API_URL = "https://api.conway.tech";
+const DEFAULT_API_URL = "";
 
 /**
  * Load API key from local sources (env, keys.json, config.json).
@@ -82,10 +82,10 @@ export async function provision(
 
   // 3. Construct and sign SIWE message
   const siweMessage = new SiweMessage({
-    domain: "conway.tech",
+    domain: "datchi.app",
     address,
     statement:
-      "Sign in to Conway as an Automaton to provision an API key.",
+      "Sign in as an Automaton to provision an API key.",
     uri: `${url}/v1/auth/verify`,
     version: "1",
     chainId: 8453, // Base

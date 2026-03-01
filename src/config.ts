@@ -132,7 +132,7 @@ export function createConfig(params: {
     registeredWithConway: params.registeredWithConway,
     sandboxId: params.sandboxId,
     conwayApiUrl:
-      DEFAULT_CONFIG.conwayApiUrl || "https://api.conway.tech",
+      DEFAULT_CONFIG.conwayApiUrl || "",
     conwayApiKey: params.apiKey,
     openaiApiKey: params.openaiApiKey,
     anthropicApiKey: params.anthropicApiKey,

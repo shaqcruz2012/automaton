@@ -520,9 +520,8 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
   // ─── Model Discovery ───────────────────────────────────────────
 
   const listModels = async (): Promise<ModelInfo[]> => {
-    // Try inference.conway.tech first (has availability info), fall back to control plane
+    // Phase 5b: Conway inference URL removed. Use configured API URL only.
     const urls = [
-      "https://inference.conway.tech/v1/models",
       `${apiUrl}/v1/models`,
     ];
     for (const url of urls) {

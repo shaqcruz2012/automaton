@@ -57,7 +57,7 @@ logs/
 
   // Configure git user
   await conway.exec(
-    `cd ${dir} && git config user.name "Automaton" && git config user.email "automaton@conway.tech"`,
+    `cd ${dir} && git config user.name "Automaton" && git config user.email "automaton@datchi.app"`,
     5000,
   );
 
