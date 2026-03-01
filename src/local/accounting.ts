@@ -316,6 +316,62 @@ export function logTransferEvent(db: Database, event: TransferEvent): string {
   return id;
 }
 
+// ── Daily Net Profit ─────────────────────────────────────────────
+
+export interface DailyProfit {
+  /** UTC date in YYYY-MM-DD format */
+  date: string;
+  /** Total revenue in cents for the given date */
+  revenueCents: number;
+  /** Total expenses in cents for the given date */
+  expenseCents: number;
+  /** Net profit in cents (revenue - expenses) */
+  netProfitCents: number;
+  /** Net profit in USD */
+  netProfitUsd: number;
+}
+
+/**
+ * Compute net profit for a specific UTC day.
+ * Sums all revenue_events and expense_events where created_at falls
+ * within the given UTC date (00:00:00 to 23:59:59).
+ *
+ * @param db - SQLite database instance
+ * @param date - Date in YYYY-MM-DD format
+ */
+export function computeDailyNetProfit(db: Database, date: string): DailyProfit {
+  // Compute the start of the given date and the start of the next day
+  const dayStart = `${date} 00:00:00`;
+  const nextDay = new Date(`${date}T00:00:00Z`);
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+  const nextDayStr = nextDay.toISOString().slice(0, 10);
+  const dayEnd = `${nextDayStr} 00:00:00`;
+
+  // Sum revenue for the day
+  const revRow = db.prepare(
+    `SELECT COALESCE(SUM(amount_cents), 0) as total FROM revenue_events
+     WHERE created_at >= ? AND created_at < ?`,
+  ).get(dayStart, dayEnd) as { total: number };
+
+  // Sum expenses for the day
+  const expRow = db.prepare(
+    `SELECT COALESCE(SUM(amount_cents), 0) as total FROM expense_events
+     WHERE created_at >= ? AND created_at < ?`,
+  ).get(dayStart, dayEnd) as { total: number };
+
+  const revenueCents = revRow.total;
+  const expenseCents = expRow.total;
+  const netProfitCents = revenueCents - expenseCents;
+
+  return {
+    date,
+    revenueCents,
+    expenseCents,
+    netProfitCents,
+    netProfitUsd: netProfitCents / 100,
+  };
+}
+
 // ── Niche P&L ───────────────────────────────────────────────────
 
 export interface NichePnl {
