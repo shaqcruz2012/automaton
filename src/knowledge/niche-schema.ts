@@ -41,4 +41,12 @@ const NICHE_SCHEMA = `
  */
 export function initNicheSchema(db: Database): void {
   db.exec(NICHE_SCHEMA);
+
+  // Add rl_priority column for bandit-like niche prioritization.
+  // Uses try/catch so it's safe to call repeatedly (column may already exist).
+  try {
+    db.exec(`ALTER TABLE niches ADD COLUMN rl_priority REAL DEFAULT 0.0`);
+  } catch (_err) {
+    // Column already exists — ignore
+  }
 }

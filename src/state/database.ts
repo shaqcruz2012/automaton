@@ -74,6 +74,7 @@ import { createLogger } from "../observability/logger.js";
 import { initAccountingSchema } from "../local/accounting.js";
 import { initNicheSchema } from "../knowledge/niche-schema.js";
 import { initExperimentSchema } from "../experiments/schema.js";
+import { initNicheStatsView } from "../knowledge/niche-stats.js";
 
 const logger = createLogger("database");
 
@@ -114,6 +115,9 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
 
   // Experiment planning schema (experiments table for MVP tracking)
   initExperimentSchema(db);
+
+  // Niche stats view (aggregates revenue, expenses, and experiment outcomes per niche)
+  initNicheStatsView(db);
 
   // Ensure version is recorded
   const versionRow = db
