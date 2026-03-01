@@ -1,7 +1,7 @@
 /**
  * Local Treasury
  *
- * Phase 4: Replaces Conway's metered credit ledger with local accounting
+ * Phase 4: Replaces legacy metered credit ledger with local accounting
  * backed by the agent's actual USDC balance on Base L2.
  *
  * - getOnChainBalance(): Read USDC balance on Base via viem

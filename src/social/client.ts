@@ -13,7 +13,7 @@ const logger = createLogger("social");
 
 /**
  * Create a no-op SocialClient.
- * Phase 5b: Social relay is disabled — no Conway dependency.
+ * Phase 5b: Social relay is disabled — no external dependency.
  */
 export function createSocialClient(
   _relayUrl: string,

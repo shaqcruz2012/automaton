@@ -1,7 +1,7 @@
 /**
  * Spawn
  *
- * Spawn child automatons in new Conway sandboxes.
+ * Spawn child automatons in new sandboxes.
  * Uses the lifecycle state machine for tracked transitions.
  * Cleans up sandbox on ANY failure after creation.
  */
@@ -18,7 +18,7 @@ import type { ChildLifecycle } from "./lifecycle.js";
 import { ulid } from "ulid";
 import { propagateConstitution } from "./constitution.js";
 
-/** Valid Conway sandbox pricing tiers. */
+/** Valid sandbox pricing tiers. */
 const SANDBOX_TIERS = [
   { memoryMb: 512,  vcpu: 1, diskGb: 5 },
   { memoryMb: 1024, vcpu: 1, diskGb: 10 },
@@ -42,7 +42,7 @@ export function isValidWalletAddress(address: string): boolean {
 }
 
 /**
- * Spawn a child automaton in a new Conway sandbox using lifecycle state machine.
+ * Spawn a child automaton in a new sandbox using lifecycle state machine.
  */
 export async function spawnChild(
   conway: ConwayClient,
@@ -120,7 +120,7 @@ export async function spawnChild(
     // Install runtime (on the CHILD sandbox)
     await childConway.exec("apt-get update -qq && apt-get install -y -qq nodejs npm git curl", 120_000);
     await childConway.exec(
-      "git clone https://github.com/Conway-Research/automaton.git /root/automaton && cd /root/automaton && npm install && npm run build",
+      "git clone https://github.com/datchi-app/automaton.git /root/automaton && cd /root/automaton && npm install && npm run build",
       180_000,
     );
 
@@ -201,7 +201,7 @@ export async function spawnChild(
 
     return child;
   } catch (error) {
-    // Note: sandbox deletion is disabled by the Conway API (prepaid, non-refundable).
+    // Note: sandbox deletion is disabled (prepaid, non-refundable).
     // Failed sandboxes are left running and may be reused by findReusableSandbox().
 
     // Transition to failed if lifecycle has been initialized
@@ -253,7 +253,7 @@ async function spawnChildLegacy(
       120_000,
     );
     await childConway.exec(
-      "git clone https://github.com/Conway-Research/automaton.git /root/automaton && cd /root/automaton && npm install && npm run build",
+      "git clone https://github.com/datchi-app/automaton.git /root/automaton && cd /root/automaton && npm install && npm run build",
       180_000,
     );
     await childConway.exec("mkdir -p /root/.automaton", 10_000);

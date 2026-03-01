@@ -1,7 +1,7 @@
 /**
  * Local Identity Provider
  *
- * Phase 3: Replaces Conway SIWE provisioning with local wallet-based identity.
+ * Phase 3: Replaces legacy SIWE provisioning with local wallet-based identity.
  * The automaton's identity IS its wallet — no external auth needed.
  *
  * Reads wallet from ~/.automaton/wallet.json (created by identity/wallet.ts)

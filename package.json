@@ -1,7 +1,7 @@
 {
-  "name": "@conway/automaton",
+  "name": "@datchi/automaton",
   "version": "0.2.1",
-  "description": "Conway Automaton - Sovereign AI Agent Runtime",
+  "description": "Datchi Automaton - Sovereign AI Agent Runtime",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,18 +21,18 @@
   },
   "bin": {
     "automaton": "dist/index.js",
-    "conway-automaton": "dist/index.js"
+    "datchi-automaton": "dist/index.js"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Conway-Research/automaton.git"
+    "url": "https://github.com/datchi-app/automaton.git"
   },
-  "homepage": "https://conway.tech",
+  "homepage": "https://datchi.app",
   "keywords": [
     "autonomous-agent",
     "sovereign-ai",
     "web4",
-    "conway",
+    "datchi",
     "self-replicating"
   ],
   "license": "MIT",

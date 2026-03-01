@@ -27,7 +27,7 @@ const AGENT_CARD_TYPE =
  *
  * Phase 3.2: Only expose agentWallet service, name, generic description,
  * x402Support, and active status. Do NOT include:
- * - Conway API URL (internal infrastructure)
+ * - API URL (internal infrastructure)
  * - Sandbox ID (internal identifier)
  * - Creator address (privacy)
  */

@@ -621,7 +621,8 @@ export const MIGRATION_V9 = `
     timeout_ms INTEGER DEFAULT 300000,
     created_at TEXT NOT NULL,
     started_at TEXT,
-    completed_at TEXT
+    completed_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
   CREATE INDEX idx_task_graph_goal ON task_graph(goal_id);
@@ -648,6 +649,11 @@ export const MIGRATION_V9 = `
 // Role column for children table (must be separate statement for SQLite ALTER)
 export const MIGRATION_V9_ALTER_CHILDREN_ROLE = `
   ALTER TABLE children ADD COLUMN role TEXT DEFAULT 'generalist';
+`;
+
+// updated_at column for task_graph (for existing databases that created it without it)
+export const MIGRATION_V9_ALTER_TASK_GRAPH_UPDATED_AT = `
+  ALTER TABLE task_graph ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'));
 `;
 
 export const MIGRATION_V10 = `

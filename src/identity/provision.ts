@@ -1,9 +1,9 @@
 /**
  * Automaton Auth Provisioning — Migration Wrapper
  *
- * MIGRATION NOTE (Phase 3): SIWE provisioning against Conway API is kept
- * as a fallback but is no longer required. The primary auth path is now
- * local: wallet identity + provider API keys from env/keys.json/config.
+ * MIGRATION NOTE (Phase 3): SIWE provisioning is kept as a legacy fallback
+ * but is no longer required. The primary auth path is now local: wallet
+ * identity + provider API keys from env/keys.json/config.
  *
  * loadApiKeyFromConfig() now delegates to src/local/auth.ts which checks
  * env vars, keys.json, and config files.
@@ -53,12 +53,11 @@ function saveConfig(apiKey: string, walletAddress: string): void {
 }
 
 /**
- * Run the full SIWE provisioning flow against Conway API.
+ * Run the full SIWE provisioning flow (legacy).
  *
  * Phase 3 note: This is now OPTIONAL. The automaton can run without
- * a Conway API key as long as provider keys (OpenAI/Anthropic) are set.
- * This function is kept for backward compatibility and for users who
- * want to use Conway cloud features (credits, domains, registration).
+ * an API key as long as provider keys (OpenAI/Anthropic) are set.
+ * This function is kept for backward compatibility.
  */
 export async function provision(
   apiUrl?: string,
@@ -120,7 +119,7 @@ export async function provision(
       "Content-Type": "application/json",
       Authorization: `Bearer ${access_token}`,
     },
-    body: JSON.stringify({ name: "conway-automaton" }),
+    body: JSON.stringify({ name: "datchi-automaton" }),
   });
 
   if (!keyResp.ok) {
@@ -141,8 +140,8 @@ export async function provision(
 }
 
 /**
- * Register the automaton's creator as its parent with Conway.
- * Phase 3 note: This is optional — only needed for Conway cloud features.
+ * Register the automaton's creator as its parent (legacy).
+ * Phase 3 note: This is optional — only needed for cloud features.
  */
 export async function registerParent(
   creatorAddress: string,
@@ -151,7 +150,7 @@ export async function registerParent(
   const url = apiUrl || process.env.CONWAY_API_URL || DEFAULT_API_URL;
   const apiKey = loadApiKeyFromConfig();
   if (!apiKey) {
-    // No Conway API key — skip silently in local mode
+    // No API key — skip silently in local mode
     return;
   }
 

@@ -137,14 +137,14 @@ export async function runAgentLoop(
 
       // Bridge automaton config API keys to env vars for the provider registry.
       // The registry reads keys from process.env; the automaton config may have
-      // them from config.json or Conway provisioning.
+      // them from config.json or legacy provisioning.
       if (config.openaiApiKey && !process.env.OPENAI_API_KEY) {
         process.env.OPENAI_API_KEY = config.openaiApiKey;
       }
       if (config.anthropicApiKey && !process.env.ANTHROPIC_API_KEY) {
         process.env.ANTHROPIC_API_KEY = config.anthropicApiKey;
       }
-      // Phase 5b: Conway Compute fallback removed. Agent uses direct API keys.
+      // Phase 5b: Legacy compute fallback removed. Agent uses direct API keys.
       // Keep CONWAY_API_KEY in env if present for any remaining backward compat.
       if (config.conwayApiKey && !process.env.CONWAY_API_KEY) {
         process.env.CONWAY_API_KEY = config.conwayApiKey;
@@ -179,8 +179,8 @@ export async function runAgentLoop(
       );
 
       // Adapter: wrap the main agent's working inference client so local
-      // workers can use it. The main InferenceClient talks to Conway Compute
-      // (which always works), unlike the UnifiedInferenceClient which needs
+      // workers can use it. The main InferenceClient talks to the configured
+      // backend, unlike the UnifiedInferenceClient which needs
       // a direct OpenAI key.
       const workerInference = {
         chat: async (params: { messages: any[]; tools?: any[]; maxTokens?: number; temperature?: number }) => {
@@ -200,7 +200,7 @@ export async function runAgentLoop(
       };
 
       // Local worker pool: runs inference-driven agents in-process
-      // as async tasks. Falls back from Conway sandbox spawning.
+      // as async tasks. Falls back from remote sandbox spawning.
       const workerPool = new LocalWorkerPool({
         db: db.raw,
         inference: workerInference,
@@ -229,7 +229,7 @@ export async function runAgentLoop(
         config: {
           ...config,
           spawnAgent: async (task: any) => {
-            // Try Conway sandbox spawn first (production)
+            // Try remote sandbox spawn first (production)
             try {
               const { generateGenesisConfig } = await import("../replication/genesis.js");
               const { spawnChild } = await import("../replication/spawn.js");
@@ -250,9 +250,9 @@ export async function runAgentLoop(
                 sandboxId: child.sandboxId,
               };
             } catch (sandboxError: any) {
-              // Phase 5b: Conway sandbox topup removed — sandbox is local now.
+              // Phase 5b: Sandbox topup removed — sandbox is local now.
               // Fall back to local worker.
-              logger.info("Conway sandbox unavailable, spawning local worker", {
+              logger.info("Remote sandbox unavailable, spawning local worker", {
                 taskId: task.id,
                 error: sandboxError instanceof Error ? sandboxError.message : String(sandboxError),
               });
@@ -355,7 +355,7 @@ export async function runAgentLoop(
   db.setAgentState("running");
   onStateChange?.("running");
 
-  log(config, `[WAKE UP] ${config.name} is alive. Credits: $${(financial.creditsCents / 100).toFixed(2)}`);
+  log(config, `[WAKE UP] ${config.name} is alive. USDC: $${(financial.creditsCents / 100).toFixed(2)}`);
 
   // ─── The Loop ──────────────────────────────────────────────
 

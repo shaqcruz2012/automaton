@@ -3,7 +3,7 @@
  *
  * MIGRATION NOTE (Phase 4): Delegates entirely to src/local/treasury.ts.
  * Survival tiers are now based on USDC balance and daily burn rate,
- * not Conway metered credits.
+ * not legacy metered credits.
  *
  * Exports are kept for backward compatibility with callers.
  */

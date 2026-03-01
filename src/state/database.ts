@@ -44,6 +44,7 @@ import {
   MIGRATION_V8,
   MIGRATION_V9,
   MIGRATION_V9_ALTER_CHILDREN_ROLE,
+  MIGRATION_V9_ALTER_TASK_GRAPH_UPDATED_AT,
   MIGRATION_V10,
 } from "./schema.js";
 import type {
@@ -627,6 +628,7 @@ function applyMigrations(db: DatabaseType): void {
       apply: () => {
         db.exec(MIGRATION_V9);
         try { db.exec(MIGRATION_V9_ALTER_CHILDREN_ROLE); } catch { /* column may already exist */ }
+        try { db.exec(MIGRATION_V9_ALTER_TASK_GRAPH_UPDATED_AT); } catch { /* column may already exist */ }
       },
     },
     {
@@ -644,6 +646,11 @@ function applyMigrations(db: DatabaseType): void {
       migrate();
     }
   }
+
+  // Post-migration fixups for columns that may be missing from existing databases.
+  // These are safe to run unconditionally because ALTER TABLE ADD COLUMN
+  // throws if the column already exists, which we silently catch.
+  try { db.exec(MIGRATION_V9_ALTER_TASK_GRAPH_UPDATED_AT); } catch { /* column already exists */ }
 }
 
 // ─── Exported Helpers ───────────────────────────────────────────

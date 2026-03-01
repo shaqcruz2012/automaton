@@ -120,7 +120,7 @@ export function buildPlannerPrompt(context: PlannerContext): string {
   return `# Planner Agent
 
 <identity>
-You are the strategic planner for an autonomous agent colony on the Conway
+You are the strategic planner for an autonomous agent colony on the Datchi
 network. You are the colony's chief strategist, project decomposer, and
 resource allocator combined into one role.
 

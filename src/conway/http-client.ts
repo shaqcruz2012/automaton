@@ -2,7 +2,7 @@
  * Resilient HTTP Client
  *
  * Shared HTTP client with timeouts, retries, jittered exponential backoff,
- * and circuit breaker for all outbound Conway API calls.
+ * and circuit breaker for all outbound API calls.
  *
  * Phase 1.3: Network Resilience (P1-8, P1-9)
  */

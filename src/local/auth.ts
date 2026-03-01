@@ -7,7 +7,7 @@
  *   2. ~/.automaton/keys.json (dedicated key store)
  *   3. automaton.json config (openaiApiKey, anthropicApiKey, ollamaBaseUrl)
  *
- * No Conway API key required for local operation.
+ * No legacy API key required for local operation.
  */
 
 import fs from "fs";
@@ -18,7 +18,7 @@ export interface ProviderKeys {
   openaiApiKey?: string;
   anthropicApiKey?: string;
   ollamaBaseUrl?: string;
-  /** Conway API key — optional, only needed for Conway cloud features */
+  /** Legacy API key — optional, only needed for cloud features */
   conwayApiKey?: string;
 }
 
@@ -90,7 +90,7 @@ export function hasInferenceProvider(): boolean {
 }
 
 /**
- * Load the Conway API key specifically (for backward compatibility).
+ * Load the legacy API key (for backward compatibility).
  * Returns the key from env, keys.json, or config.json.
  */
 export function loadApiKey(): string | null {

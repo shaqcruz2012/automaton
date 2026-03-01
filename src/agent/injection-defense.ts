@@ -281,7 +281,7 @@ function detectAuthorityClaims(text: string): InjectionCheck {
     /developer\s+mode/i,
     /admin\s+override/i,
     /from\s+anthropic/i,
-    /from\s+conway\s+(team|admin|staff)/i,
+    /from\s+(conway|datchi)\s+(team|admin|staff)/i,
   ];
 
   const detected = patterns.some((p) => p.test(text));

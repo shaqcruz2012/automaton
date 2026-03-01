@@ -84,7 +84,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
 
       return {
         shouldWake: true,
-        message: `Distress: ${tier}. Credits: $${(credits / 100).toFixed(2)}. Need funding.`,
+        message: `Distress: ${tier}. USDC: $${(credits / 100).toFixed(2)}. Need funding.`,
       };
     }
 
@@ -307,25 +307,25 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     }
   },
 
-  // === Phase 5b: Model registry is now static/local — no Conway refresh needed ===
+  // === Phase 5b: Model registry is now static/local — no remote refresh needed ===
   refresh_models: async (_ctx: TickContext, _taskCtx: HeartbeatLegacyContext) => {
-    // Phase 5b: Model registry is local. No Conway API call needed.
+    // Phase 5b: Model registry is local. No remote API call needed.
     return { shouldWake: false };
   },
 
-  // === Phase 5b: Child health uses local sandbox — no Conway sandbox API ===
+  // === Phase 5b: Child health uses local sandbox — no remote sandbox API ===
   check_child_health: async (_ctx: TickContext, _taskCtx: HeartbeatLegacyContext) => {
-    // Phase 5b: Skipped — local sandbox mode, no Conway sandbox health API.
+    // Phase 5b: Skipped — local sandbox mode, no remote sandbox health API.
     return { shouldWake: false };
   },
 
-  // === Phase 5b: Child pruning uses local sandbox — no Conway sandbox API ===
+  // === Phase 5b: Child pruning uses local sandbox — no remote sandbox API ===
   prune_dead_children: async (_ctx: TickContext, _taskCtx: HeartbeatLegacyContext) => {
-    // Phase 5b: Skipped — local sandbox mode, no Conway sandbox cleanup API.
+    // Phase 5b: Skipped — local sandbox mode, no remote sandbox cleanup API.
     return { shouldWake: false };
   },
 
-  // === Phase 5b: Health check uses local process — no Conway sandbox exec ===
+  // === Phase 5b: Health check uses local process — no remote sandbox exec ===
   health_check: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
     // Phase 5b: Local mode — agent is alive if heartbeat is running.
     taskCtx.db.setKV("health_check_status", "ok");
@@ -661,7 +661,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         `(balance: ${creditsCents}¢, threshold: ${taxConfig.thresholdCents}¢, rate: ${taxConfig.taxRate}%)`,
       );
 
-      // Phase 4: Use USDC transfer instead of Conway credit transfer
+      // Phase 4: Use USDC transfer instead of legacy credit transfer
       const { transferUSDC } = await import("../local/treasury.js");
       const amountUsd = taxAmount / 100;
       const result = await transferUSDC(

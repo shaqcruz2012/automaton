@@ -3,7 +3,7 @@
  *
  * Creates and manages an EVM wallet for the automaton's identity and payments.
  * The private key is the automaton's sovereign identity.
- * Adapted from conway-mcp/src/wallet.ts
+ * Adapted from the wallet reference implementation
  */
 
 import type { PrivateKeyAccount } from "viem";

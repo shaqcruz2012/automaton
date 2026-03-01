@@ -1,7 +1,7 @@
 /**
- * Conway API Client
+ * Datchi API Client (legacy Conway interface)
  *
- * Communicates with Conway's control plane for sandbox management,
+ * Communicates with the control plane for sandbox management,
  * credits, and infrastructure operations.
  * Adapted from @aiws/sdk patterns.
  */
@@ -47,7 +47,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
     body?: unknown,
     requestOptions?: { idempotencyKey?: string; retries404?: number },
   ): Promise<any> {
-    // Conway LB has an intermittent routing bug that returns 404 for valid
+    // LB has an intermittent routing bug that returns 404 for valid
     // sandbox endpoints. Retry 404s here (outside ResilientHttpClient) to
     // avoid tripping the circuit breaker on transient routing failures.
     const max404Retries = requestOptions?.retries404 ?? 3;
@@ -70,7 +70,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
       if (!resp.ok) {
         const text = await resp.text();
         const err: any = new Error(
-          `Conway API error: ${method} ${path} -> ${resp.status}: ${text}`,
+          `API error: ${method} ${path} -> ${resp.status}: ${text}`,
         );
         err.status = resp.status;
         err.responseText = text;
@@ -153,7 +153,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
       // would bypass the sandbox security boundary entirely.
       if (err?.status === 403) {
         throw new Error(
-          `Conway API authentication failed (403). Sandbox exec refused. ` +
+          `API authentication failed (403). Sandbox exec refused. ` +
             `This may indicate a misconfigured or revoked API key. ` +
             `Command will NOT be executed locally for security reasons.`,
         );
@@ -189,7 +189,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
       // SECURITY: Never silently fall back to local FS on auth failure.
       if (err?.status === 403) {
         throw new Error(
-          `Conway API authentication failed (403). File write refused. ` +
+          `API authentication failed (403). File write refused. ` +
             `File will NOT be written locally for security reasons.`,
         );
       }
@@ -213,7 +213,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
       // SECURITY: Never silently fall back to local FS on auth failure.
       if (err?.status === 403) {
         throw new Error(
-          `Conway API authentication failed (403). File read refused. ` +
+          `API authentication failed (403). File read refused. ` +
             `File will NOT be read locally for security reasons.`,
         );
       }
@@ -271,7 +271,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
   };
 
   const deleteSandbox = async (_targetId: string): Promise<void> => {
-    // Conway API no longer supports sandbox deletion.
+    // API no longer supports sandbox deletion.
     // Sandboxes are prepaid and non-refundable — this is a no-op.
   };
 
@@ -342,7 +342,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
         lastError = `${resp.status}: ${text}`;
         // Try next known endpoint shape before failing.
         if (resp.status === 404) continue;
-        throw new Error(`Conway API error: POST ${path} -> ${lastError}`);
+        throw new Error(`API error: POST ${path} -> ${lastError}`);
       }
 
       const data = await resp.json().catch(() => ({}) as any);
@@ -357,7 +357,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
     }
 
     throw new Error(
-      `Conway API error: POST /v1/credits/transfer -> ${lastError}`,
+      `API error: POST /v1/credits/transfer -> ${lastError}`,
     );
   };
 
@@ -520,7 +520,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
   // ─── Model Discovery ───────────────────────────────────────────
 
   const listModels = async (): Promise<ModelInfo[]> => {
-    // Phase 5b: Conway inference URL removed. Use configured API URL only.
+    // Phase 5b: Use configured API URL only.
     const urls = [
       `${apiUrl}/v1/models`,
     ];

@@ -2,7 +2,7 @@
  * Model Registry
  *
  * DB-backed registry of available models with capabilities and pricing.
- * Seeded from a static baseline, updatable at runtime from Conway API.
+ * Seeded from a static baseline, updatable at runtime via API.
  */
 
 import type BetterSqlite3 from "better-sqlite3";
@@ -132,7 +132,7 @@ export class ModelRegistry {
   }
 
   /**
-   * Refresh registry from Conway /v1/models API response.
+   * Refresh registry from /v1/models API response.
    */
   refreshFromApi(models: any[]): void {
     const now = new Date().toISOString();

@@ -30,7 +30,10 @@ export interface ModelConfig {
 export interface ResolvedModel {
   provider: ProviderConfig;
   model: ModelConfig;
-  client: OpenAI;
+  /** OpenAI-compatible client. Undefined for providers that need native API calls (e.g. Anthropic). */
+  client: OpenAI | undefined;
+  /** Resolved API key for the provider. */
+  apiKey: string;
 }
 
 interface TierDefault {
@@ -476,15 +479,22 @@ export class ProviderRegistry {
 
   private buildResolvedModel(provider: ProviderConfig, model: ModelConfig): ResolvedModel {
     const apiKey = this.resolveApiKey(provider);
-    const client = new OpenAI({
-      apiKey,
-      baseURL: provider.baseUrl,
-    });
+
+    // Anthropic uses a native API format, not OpenAI-compatible.
+    // Do not create an OpenAI client for Anthropic — the inference client
+    // handles Anthropic calls directly via fetch.
+    const client = provider.id === "anthropic"
+      ? undefined
+      : new OpenAI({
+          apiKey,
+          baseURL: provider.baseUrl,
+        });
 
     return {
       provider: deepCloneProvider(provider),
       model: { ...model },
       client,
+      apiKey,
     };
   }
 

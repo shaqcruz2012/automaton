@@ -6,40 +6,60 @@
  * The automaton's entire identity history is version-controlled and replayable.
  */
 
+import os from "node:os";
+import path from "node:path";
+import fs from "node:fs";
 import type { ConwayClient, AutomatonDatabase } from "../types.js";
 import { gitInit, gitCommit, gitStatus, gitLog } from "./tools.js";
+import { createLogger } from "../observability/logger.js";
+
+const logger = createLogger("state-versioning");
 
 const AUTOMATON_DIR = "~/.automaton";
 
 function resolveHome(p: string): string {
-  const home = process.env.HOME || "/root";
   if (p.startsWith("~")) {
-    return `${home}${p.slice(1)}`;
+    return path.join(os.homedir(), p.slice(2)); // slice "~/" or "~\\"
   }
-  return p;
+  return path.resolve(p);
 }
 
 /**
  * Initialize git repo for the automaton's state directory.
  * Creates .gitignore to exclude sensitive files.
+ *
+ * Non-essential for the PoC — failures are logged but do not block startup.
  */
 export async function initStateRepo(
   conway: ConwayClient,
 ): Promise<void> {
   const dir = resolveHome(AUTOMATON_DIR);
 
-  // Check if already initialized
-  const checkResult = await conway.exec(
-    `test -d ${dir}/.git && echo "exists" || echo "nope"`,
-    5000,
-  );
+  // Check if already initialized using fs (cross-platform, no shell dependency)
+  const gitDir = path.join(dir, ".git");
+  try {
+    if (fs.existsSync(gitDir) && fs.statSync(gitDir).isDirectory()) {
+      return;
+    }
+  } catch {
+    // If we can't stat, try to initialize anyway
+  }
 
-  if (checkResult.stdout.trim() === "exists") {
-    return;
+  // Ensure the directory exists
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (err: any) {
+    logger.warn(`Cannot create automaton dir ${dir}: ${err.message}`);
+    return; // Non-blocking: skip git init if dir can't be created
   }
 
   // Initialize
-  await gitInit(conway, dir);
+  try {
+    await gitInit(conway, dir);
+  } catch (err: any) {
+    logger.warn(`git init failed for ${dir}: ${err.message}`);
+    return; // Non-blocking: skip remaining git setup
+  }
 
   // Create .gitignore for sensitive files
   const gitignore = `# Sensitive files - never commit
@@ -53,16 +73,28 @@ logs/
 *.err
 `;
 
-  await conway.writeFile(`${dir}/.gitignore`, gitignore);
+  try {
+    await conway.writeFile(`${dir}/.gitignore`, gitignore);
+  } catch {
+    // Non-blocking: .gitignore is nice-to-have
+  }
 
   // Configure git user
-  await conway.exec(
-    `cd ${dir} && git config user.name "Automaton" && git config user.email "automaton@datchi.app"`,
-    5000,
-  );
+  try {
+    await conway.exec(
+      `cd "${dir}" && git config user.name "Automaton" && git config user.email "automaton@datchi.app"`,
+      5000,
+    );
+  } catch {
+    // Non-blocking: git config is nice-to-have
+  }
 
   // Initial commit
-  await gitCommit(conway, dir, "genesis: automaton state repository initialized");
+  try {
+    await gitCommit(conway, dir, "genesis: automaton state repository initialized");
+  } catch {
+    // Non-blocking: initial commit is nice-to-have
+  }
 }
 
 /**

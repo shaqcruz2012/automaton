@@ -1,7 +1,7 @@
 /**
  * Credit Topup (Disabled)
  *
- * Phase 5b: Conway credit topup is no longer needed — credits ARE USDC.
+ * Phase 5b: Credit topup is no longer needed — credits ARE USDC.
  * These stubs maintain backward compatibility for any callers while
  * doing nothing. To add funds, send USDC on Base to the agent's wallet.
  */

@@ -55,9 +55,6 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     console.log(chalk.green(`  Ollama URL saved: ${ollamaBaseUrl}`));
   }
 
-  // Optional: Conway API key for cloud features
-  const conwayApiKey = await promptOptional("Conway API key (cnwy_k_..., optional — for cloud features)");
-
   if (openaiApiKey || anthropicApiKey || ollamaBaseUrl) {
     const providers = [
       anthropicApiKey ? "Anthropic" : null,
@@ -74,10 +71,7 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     openaiApiKey: openaiApiKey || undefined,
     anthropicApiKey: anthropicApiKey || undefined,
     ollamaBaseUrl,
-    conwayApiKey: conwayApiKey || undefined,
   });
-
-  const apiKey = conwayApiKey || "";
 
   // ─── 3. Interactive questions ─────────────────────────────────
   console.log(chalk.cyan("  [3/6] Setup questions\n"));
@@ -135,10 +129,10 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     name,
     genesisPrompt,
     creatorAddress: creatorAddress as Address,
-    registeredWithConway: !!apiKey,
+    registeredWithConway: false,
     sandboxId: env.sandboxId,
     walletAddress: account.address,
-    apiKey,
+    apiKey: "",
     openaiApiKey: openaiApiKey || undefined,
     anthropicApiKey: anthropicApiKey || undefined,
     ollamaBaseUrl,

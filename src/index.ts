@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Conway Automaton Runtime
+ * Datchi Automaton Runtime
  *
  * The entry point for the sovereign AI agent.
  * Handles CLI args, bootstrapping, and orchestrating
@@ -44,13 +44,13 @@ async function main(): Promise<void> {
   // ─── CLI Commands ────────────────────────────────────────────
 
   if (args.includes("--version") || args.includes("-v")) {
-    logger.info(`Conway Automaton v${VERSION}`);
+    logger.info(`Datchi v${VERSION}`);
     process.exit(0);
   }
 
   if (args.includes("--help") || args.includes("-h")) {
     logger.info(`
-Conway Automaton v${VERSION}
+Datchi v${VERSION}
 Sovereign AI Agent Runtime
 
 Usage:
@@ -59,7 +59,7 @@ Usage:
   automaton --configure    Edit configuration (providers, model, treasury, general)
   automaton --pick-model   Interactively pick the active inference model
   automaton --init         Initialize wallet and config directory
-  automaton --provision    Provision Conway API key via SIWE (optional)
+  automaton --provision    Provision API key via SIWE (optional, legacy)
   automaton --status       Show current automaton status
   automaton --version      Show version
   automaton --help         Show this help
@@ -68,8 +68,6 @@ Environment:
   ANTHROPIC_API_KEY        Anthropic API key (primary inference provider)
   OPENAI_API_KEY           OpenAI API key (secondary/fallback inference provider)
   OLLAMA_BASE_URL          Ollama base URL (local inference, e.g. http://localhost:11434)
-  CONWAY_API_URL           Conway API URL (optional, for cloud features)
-  CONWAY_API_KEY           Conway API key (optional, overrides config)
 `);
     process.exit(0);
   }
@@ -87,7 +85,7 @@ Environment:
   }
 
   if (args.includes("--provision")) {
-    logger.info("Provisioning Conway API key (optional — only needed for cloud features)...");
+    logger.info("Provisioning API key via SIWE (optional, legacy)...");
     try {
       const result = await provision();
       logger.info(JSON.stringify(result));
@@ -176,7 +174,7 @@ Version:    ${config.version}
 // ─── Main Run ──────────────────────────────────────────────────
 
 async function run(): Promise<void> {
-  logger.info(`[${new Date().toISOString()}] Conway Automaton v${VERSION} starting...`);
+  logger.info(`[${new Date().toISOString()}] Datchi v${VERSION} starting...`);
 
   // Load config — first run triggers interactive setup wizard
   let config = loadConfig();
@@ -189,14 +187,14 @@ async function run(): Promise<void> {
   const { account } = await getWallet();
   const apiKey = config.conwayApiKey || loadApiKeyFromConfig() || "";
 
-  // Phase 3: Conway API key is no longer required.
+  // API key is no longer required.
   // The agent can run with just provider keys (Anthropic/OpenAI/Ollama).
   if (!apiKey && !hasInferenceProvider()) {
     logger.error("No API keys found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, or run: automaton --setup");
     process.exit(1);
   }
   if (!apiKey) {
-    logger.info(`[${new Date().toISOString()}] Running in local mode (no Conway API key).`);
+    logger.info(`[${new Date().toISOString()}] Running in local mode (no legacy API key).`);
   }
 
   // Initialize database
@@ -232,7 +230,7 @@ async function run(): Promise<void> {
     db.setIdentity("automatonId", automatonId);
   }
 
-  // Create Conway client
+  // Create API client (legacy Conway interface)
   const conway = createConwayClient({
     apiUrl: config.conwayApiUrl,
     apiKey,
@@ -240,7 +238,7 @@ async function run(): Promise<void> {
   });
 
   // Register automaton identity (one-time, immutable)
-  // Phase 3: Only attempt registration if we have a Conway API key
+  // Only attempt registration if we have an API key
   const registrationState = db.getIdentity("conwayRegistrationStatus");
   if (apiKey && registrationState !== "registered") {
     try {
@@ -293,11 +291,10 @@ async function run(): Promise<void> {
     logger.info(`[${new Date().toISOString()}] Ollama backend: ${ollamaBaseUrl}`);
   }
 
-  // Create social client
+  // Create social client (Conway social relay is deprecated; kept for backward compat)
   let social: SocialClientInterface | undefined;
   if (config.socialRelayUrl) {
     social = createSocialClient(config.socialRelayUrl, account);
-    logger.info(`[${new Date().toISOString()}] Social relay: ${config.socialRelayUrl}`);
   }
 
   // Initialize PolicyEngine + SpendTracker (Phase 1.4)

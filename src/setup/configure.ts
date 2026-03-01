@@ -101,7 +101,7 @@ async function askChoice<T extends string>(
 const PROVIDER_LABEL: Record<string, string> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
-  conway: "Conway",
+  conway: "Datchi",
   ollama: "Ollama",
   other: "Other",
 };
@@ -174,7 +174,7 @@ function printMainMenu(config: AutomatonConfig): void {
     config.openaiApiKey ? "OpenAI" : null,
     config.anthropicApiKey ? "Anthropic" : null,
     config.ollamaBaseUrl ? "Ollama" : null,
-    "Conway",
+    "Datchi",
   ].filter(Boolean).join(", ");
 
   const strategy = config.modelStrategy ?? DEFAULT_MODEL_STRATEGY_CONFIG;
@@ -199,7 +199,7 @@ async function configureProviders(config: AutomatonConfig): Promise<void> {
   console.log(chalk.dim("  Press Enter to keep the current value. Type - to clear an optional field.\n"));
 
   config.conwayApiKey = await askRequiredString(
-    "Conway API key",
+    "Datchi API key (legacy, optional)",
     config.conwayApiKey,
   );
 

@@ -191,6 +191,7 @@ export class UnifiedInferenceClient {
           resolved.model,
           requestedTier,
           params,
+          resolved.apiKey,
         );
         return { result, retries };
       } catch (error) {
@@ -221,12 +222,27 @@ export class UnifiedInferenceClient {
   }
 
   private async executeSingleRequest(
-    client: OpenAI,
+    client: OpenAI | undefined,
     providerId: string,
     model: ModelConfig,
     requestedTier: ModelTier,
     params: SharedChatParams,
+    apiKey?: string,
   ): Promise<UnifiedInferenceResult> {
+    // Route Anthropic models through the native Messages API
+    if (providerId === "anthropic") {
+      return this.executeAnthropicRequest(
+        apiKey || "",
+        model,
+        requestedTier,
+        params,
+      );
+    }
+
+    if (!client) {
+      throw new Error(`No OpenAI-compatible client available for provider '${providerId}'`);
+    }
+
     const startedAt = Date.now();
     const payload = this.buildChatCompletionRequest(model.id, params);
     if (params.stream) {
@@ -267,6 +283,105 @@ export class UnifiedInferenceClient {
         inputTokens: (completion as any).usage?.prompt_tokens ?? 0,
         outputTokens: (completion as any).usage?.completion_tokens ?? 0,
         totalTokens: (completion as any).usage?.total_tokens ?? 0,
+      },
+    });
+  }
+
+  /**
+   * Execute an inference request against Anthropic's native Messages API.
+   * Anthropic uses a different API format than OpenAI:
+   *   - Endpoint: https://api.anthropic.com/v1/messages
+   *   - Auth header: x-api-key (not Authorization: Bearer)
+   *   - Request body: { model, max_tokens, messages, system? }
+   *   - Response: { content: [{type:"text",text:"..."}], usage: {input_tokens, output_tokens} }
+   */
+  private async executeAnthropicRequest(
+    apiKey: string,
+    model: ModelConfig,
+    requestedTier: ModelTier,
+    params: SharedChatParams,
+  ): Promise<UnifiedInferenceResult> {
+    const startedAt = Date.now();
+
+    // Transform messages: extract system messages, format for Anthropic
+    const { system, messages } = transformMessagesForAnthropic(params.messages);
+
+    const body: Record<string, unknown> = {
+      model: model.id,
+      max_tokens: params.maxTokens ?? model.maxOutputTokens,
+      messages,
+    };
+
+    if (system) {
+      body.system = system;
+    }
+
+    if (params.temperature !== undefined) {
+      body.temperature = params.temperature;
+    }
+
+    if (params.tools && params.tools.length > 0) {
+      body.tools = (params.tools as any[]).map((tool: any) => ({
+        name: tool.function.name,
+        description: tool.function.description,
+        input_schema: tool.function.parameters,
+      }));
+      body.tool_choice = { type: "auto" };
+    }
+
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      const error = new Error(`Anthropic API error: ${resp.status}: ${text}`);
+      (error as any).status = resp.status;
+      throw error;
+    }
+
+    const data = await resp.json() as any;
+    const content = Array.isArray(data.content) ? data.content : [];
+    const textBlocks = content.filter((c: any) => c?.type === "text");
+    const toolUseBlocks = content.filter((c: any) => c?.type === "tool_use");
+
+    const textContent = textBlocks
+      .map((block: any) => String(block.text || ""))
+      .join("\n")
+      .trim();
+
+    // Convert Anthropic tool_use blocks to OpenAI-compatible tool_calls format
+    const toolCalls = toolUseBlocks.length > 0
+      ? toolUseBlocks.map((tool: any) => ({
+          id: tool.id,
+          type: "function" as const,
+          function: {
+            name: tool.name,
+            arguments: JSON.stringify(tool.input || {}),
+          },
+        }))
+      : undefined;
+
+    const inputTokens = data.usage?.input_tokens ?? 0;
+    const outputTokens = data.usage?.output_tokens ?? 0;
+
+    return this.buildUnifiedResult({
+      providerId: "anthropic",
+      model,
+      requestedTier,
+      latencyMs: Date.now() - startedAt,
+      content: textContent,
+      toolCalls: normalizeToolCalls(toolCalls),
+      usage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
       },
     });
   }
@@ -560,4 +675,103 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+/**
+ * Transform OpenAI-style messages into Anthropic Messages API format.
+ * - Extracts system messages into a top-level `system` field
+ * - Converts tool messages into user messages with tool_result content
+ * - Merges consecutive same-role messages (Anthropic requires alternating roles)
+ * - Converts assistant tool_calls into Anthropic tool_use content blocks
+ */
+function transformMessagesForAnthropic(
+  messages: ChatMessage[],
+): { system?: string; messages: Array<Record<string, unknown>> } {
+  const systemParts: string[] = [];
+  const transformed: Array<Record<string, unknown>> = [];
+
+  for (const msg of messages) {
+    if (msg.role === "system") {
+      if (msg.content) systemParts.push(msg.content);
+      continue;
+    }
+
+    if (msg.role === "user") {
+      // Merge consecutive user messages
+      const last = transformed[transformed.length - 1];
+      if (last && last.role === "user" && typeof last.content === "string") {
+        last.content = last.content + "\n" + msg.content;
+        continue;
+      }
+      transformed.push({
+        role: "user",
+        content: msg.content,
+      });
+      continue;
+    }
+
+    if (msg.role === "assistant") {
+      const content: Array<Record<string, unknown>> = [];
+      if (msg.content) {
+        content.push({ type: "text", text: msg.content });
+      }
+      for (const toolCall of msg.tool_calls || []) {
+        let input: Record<string, unknown>;
+        try {
+          const parsed = JSON.parse(toolCall.function.arguments);
+          input = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? parsed
+            : { value: parsed };
+        } catch {
+          input = { _raw: toolCall.function.arguments };
+        }
+        content.push({
+          type: "tool_use",
+          id: toolCall.id,
+          name: toolCall.function.name,
+          input,
+        });
+      }
+      if (content.length === 0) {
+        content.push({ type: "text", text: "" });
+      }
+      // Merge consecutive assistant messages
+      const last = transformed[transformed.length - 1];
+      if (last && last.role === "assistant" && Array.isArray(last.content)) {
+        (last.content as Array<Record<string, unknown>>).push(...content);
+        continue;
+      }
+      transformed.push({
+        role: "assistant",
+        content,
+      });
+      continue;
+    }
+
+    if (msg.role === "tool") {
+      // Tool results become user messages with tool_result content blocks
+      const toolResultBlock = {
+        type: "tool_result",
+        tool_use_id: msg.tool_call_id || "unknown_tool_call",
+        content: msg.content,
+      };
+
+      const last = transformed[transformed.length - 1];
+      if (last && last.role === "user" && Array.isArray(last.content)) {
+        // Append tool_result to existing user message with content blocks
+        (last.content as Array<Record<string, unknown>>).push(toolResultBlock);
+        continue;
+      }
+
+      transformed.push({
+        role: "user",
+        content: [toolResultBlock],
+      });
+    }
+  }
+
+  return {
+    system: systemParts.length > 0 ? systemParts.join("\n\n") : undefined,
+    messages: transformed,
+  };
 }

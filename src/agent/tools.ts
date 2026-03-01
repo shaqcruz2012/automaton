@@ -223,7 +223,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
         try {
           return await ctx.conway.readFile(filePath);
         } catch {
-          // Conway files/read API may be broken — fall back to exec(cat)
+          // files/read API may be broken — fall back to exec(cat)
           const result = await ctx.conway.exec(
             `cat ${escapeShellArg(filePath)}`,
             30_000,
@@ -251,7 +251,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
       execute: async (args, ctx) => {
         const port = args.port as number;
 
-        // If running with a Conway sandbox, use the API
+        // If running with a sandbox, use the API
         if (ctx.identity.sandboxId) {
           const info = await ctx.conway.exposePort(port);
           return `Port ${info.port} exposed at: ${info.publicUrl}`;
@@ -288,7 +288,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
       execute: async (args, ctx) => {
         const port = args.port as number;
 
-        // If running with a Conway sandbox, use the API
+        // If running with a sandbox, use the API
         if (ctx.identity.sandboxId) {
           await ctx.conway.removePort(port);
           return `Port ${port} removed`;
@@ -355,7 +355,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
     {
       name: "create_sandbox",
       description:
-        "Create a new Conway sandbox (separate VM) for sub-tasks or testing.",
+        "Create a new sandbox (separate VM) for sub-tasks or testing.",
       category: "conway",
       riskLevel: "caution",
       parameters: {
@@ -385,7 +385,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
     },
     {
       name: "delete_sandbox",
-      description: "Delete a sandbox. Note: sandbox deletion is currently disabled by the Conway API.",
+      description: "Delete a sandbox. Note: sandbox deletion is currently disabled.",
       category: "conway",
       riskLevel: "dangerous",
       parameters: {
@@ -1594,7 +1594,7 @@ Model: ${ctx.inference.getDefaultModel()}
     {
       name: "spawn_child",
       description:
-        "Spawn a child automaton in a new Conway sandbox with lifecycle tracking.",
+        "Spawn a child automaton in a new sandbox with lifecycle tracking.",
       category: "replication",
       riskLevel: "dangerous",
       parameters: {
@@ -1644,7 +1644,7 @@ Model: ${ctx.inference.getDefaultModel()}
             lifecycle,
           );
         } catch (err: any) {
-          // Phase 5b: Conway sandbox topup removed — sandbox is local now.
+          // Phase 5b: Sandbox topup removed — sandbox is local now.
           throw err;
         }
 

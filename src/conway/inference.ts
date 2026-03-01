@@ -1,8 +1,8 @@
 /**
- * Conway Inference Client
+ * Inference Client
  *
- * Wraps Conway's /v1/chat/completions endpoint (OpenAI-compatible).
- * The automaton pays for its own thinking through Conway credits.
+ * Wraps the /v1/chat/completions endpoint (OpenAI-compatible).
+ * Supports Anthropic, OpenAI, and Ollama backends.
  */
 
 import type {

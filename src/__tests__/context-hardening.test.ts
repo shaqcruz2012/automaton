@@ -411,7 +411,7 @@ describe("buildSystemPrompt status block", () => {
     const statusEnd = prompt.indexOf("--- END STATUS ---");
     const statusBlock = prompt.slice(statusStart, statusEnd);
 
-    expect(statusBlock).toContain("Credits: $50.00");
+    expect(statusBlock).toContain("USDC: $50.00");
   });
 
   it("includes survival tier in status block", () => {
