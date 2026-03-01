@@ -280,7 +280,7 @@ async function run(): Promise<void> {
     apiKey,
     defaultModel: config.inferenceModel,
     maxTokens: config.maxTokensPerTurn,
-    lowComputeModel: config.modelStrategy?.lowComputeModel || "claude-3-5-haiku-20241022",
+    lowComputeModel: config.modelStrategy?.lowComputeModel || "claude-haiku-4-5-20251001",
     openaiApiKey: config.openaiApiKey,
     anthropicApiKey: config.anthropicApiKey,
     ollamaBaseUrl,

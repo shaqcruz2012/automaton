@@ -48,7 +48,8 @@
       "Bash(git add -A)",
       "Bash(git checkout main)",
       "Bash(git reset --hard datchi/main)",
-      "Bash(xargs sed -i 's/claude-haiku-4-20250514/claude-3-5-haiku-20241022/g')"
+      "Bash(xargs sed -i 's/claude-haiku-4-20250514/claude-3-5-haiku-20241022/g')",
+      "Bash(xargs sed -i 's/claude-3-5-haiku-20241022/claude-haiku-4-5-20251001/g')"
     ]
   }
 }

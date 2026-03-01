@@ -77,7 +77,7 @@ export function recordRevenue(
  * Estimates based on input token count and model used.
  *
  * STUB: Cost estimation formulas:
- * - claude-3-5-haiku-20241022: ~$0.80 per 1M input tokens → ~$0.0008 per 1K tokens
+ * - claude-haiku-4-5-20251001: ~$0.80 per 1M input tokens → ~$0.0008 per 1K tokens
  *   → 0.08 cents per 1K tokens
  * - claude-sonnet-4-20250514: ~$3.00 per 1M input tokens → ~$0.003 per 1K tokens
  *   → 0.30 cents per 1K tokens
@@ -103,12 +103,12 @@ export function recordExpense(
   },
 ): number {
   // Cost per 1K input tokens in cents
-  // claude-3-5-haiku-20241022: $0.80/1M = $0.0008/1K = 0.08 cents/1K
+  // claude-haiku-4-5-20251001: $0.80/1M = $0.0008/1K = 0.08 cents/1K
   // claude-sonnet-4-20250514: $3.00/1M = $0.003/1K = 0.30 cents/1K
   // gpt-4o-mini: $0.15/1M = $0.00015/1K = 0.015 cents/1K (fallback)
   // gpt-4o:      $2.50/1M = $0.0025/1K  = 0.25 cents/1K (fallback)
   const costPer1kTokensCents: Record<string, number> = {
-    "claude-3-5-haiku-20241022": 0.08,
+    "claude-haiku-4-5-20251001": 0.08,
     "claude-sonnet-4-20250514": 0.30,
     "gpt-4o-mini": 0.015,
     "gpt-4o": 0.25,

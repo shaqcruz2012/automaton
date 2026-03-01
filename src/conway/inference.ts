@@ -122,7 +122,7 @@ export function createInferenceClient(
    */
   const setLowComputeMode = (enabled: boolean): void => {
     if (enabled) {
-      currentModel = options.lowComputeModel || "claude-3-5-haiku-20241022";
+      currentModel = options.lowComputeModel || "claude-haiku-4-5-20251001";
       maxTokens = 4096;
     } else {
       currentModel = options.defaultModel;
@@ -263,13 +263,21 @@ async function chatViaAnthropic(params: {
   httpClient: ResilientHttpClient;
 }): Promise<InferenceResponse> {
   const transformed = transformMessagesForAnthropic(params.messages);
+  if (transformed.messages.length === 0) {
+    // Anthropic requires at least one user message — return a no-op response
+    return {
+      id: `noop-${Date.now()}`,
+      model: params.model,
+      message: { role: "assistant", content: "[No input messages to process]" },
+      toolCalls: [],
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      finishReason: "stop",
+    };
+  }
   const body: Record<string, unknown> = {
     model: params.model,
     max_tokens: params.tokenLimit,
-    messages:
-      transformed.messages.length > 0
-        ? transformed.messages
-        : (() => { throw new Error("Cannot send empty message array to Anthropic API"); })(),
+    messages: transformed.messages,
   };
 
   if (transformed.system) {

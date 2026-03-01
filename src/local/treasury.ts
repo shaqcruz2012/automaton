@@ -80,10 +80,20 @@ export interface BalanceResult {
   error?: string;
 }
 
+/** Cache to avoid hammering the public RPC endpoint */
+let _balanceCache: { result: BalanceResult; timestamp: number } | null = null;
+const BALANCE_CACHE_TTL_MS = 60_000; // 60 seconds
+
 /**
  * Read the agent's USDC balance on Base.
+ * Results are cached for 60s to avoid RPC rate limits on public endpoints.
  */
 export async function getOnChainBalance(address: Address): Promise<BalanceResult> {
+  // Return cached result if fresh enough
+  if (_balanceCache && Date.now() - _balanceCache.timestamp < BALANCE_CACHE_TTL_MS) {
+    return _balanceCache.result;
+  }
+
   try {
     const client = getPublicClient();
     const balance = await client.readContract({
@@ -94,13 +104,20 @@ export async function getOnChainBalance(address: Address): Promise<BalanceResult
     });
 
     const balanceUsd = Number(balance) / 10 ** USDC_DECIMALS;
-    return {
+    const result: BalanceResult = {
       balanceUsd,
       balanceCents: Math.floor(balanceUsd * 100),
       balanceAtomic: balance,
       ok: true,
     };
+    _balanceCache = { result, timestamp: Date.now() };
+    return result;
   } catch (err: any) {
+    // If we have a cached result, return it instead of failing
+    if (_balanceCache) {
+      logger.warn("RPC call failed, returning cached balance");
+      return _balanceCache.result;
+    }
     return {
       balanceUsd: 0,
       balanceCents: 0,
