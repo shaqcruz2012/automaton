@@ -1,5 +1,5 @@
 {
   "tax_rate_profit": 0.20,
-  "min_reserve_usd": 50.00,
-  "creator_tax_address": "0x0000000000000000000000000000000000000000"
+  "min_reserve_usd": 2.00,
+  "creator_tax_address": "0x6b2d27d601be6a9cbaeef793385de53ad4124201"
 }

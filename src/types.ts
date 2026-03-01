@@ -81,7 +81,7 @@ export interface CreatorTaxConfig {
 
 export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
   conwayApiUrl: "",
-  inferenceModel: "gpt-5.2",
+  inferenceModel: "gpt-4o-mini",
   maxTokensPerTurn: 4096,
   heartbeatConfigPath: "~/.automaton/heartbeat.yml",
   dbPath: "~/.automaton/state.db",
@@ -581,16 +581,16 @@ export interface TreasuryPolicy {
 }
 
 export const DEFAULT_TREASURY_POLICY: TreasuryPolicy = {
-  maxSingleTransferCents: 5000,
-  maxHourlyTransferCents: 10000,
-  maxDailyTransferCents: 25000,
-  minimumReserveCents: 1000,
-  maxX402PaymentCents: 100,
+  maxSingleTransferCents: 200,         // $2 max per transfer (PoC budget)
+  maxHourlyTransferCents: 500,         // $5 max per hour
+  maxDailyTransferCents: 1000,         // $10 max per day
+  minimumReserveCents: 200,            // Keep $2 minimum reserve
+  maxX402PaymentCents: 50,             // $0.50 max for x402 payments
   x402AllowedDomains: [],
   transferCooldownMs: 0,
   maxTransfersPerTurn: 2,
-  maxInferenceDailyCents: 50000,
-  requireConfirmationAboveCents: 1000,
+  maxInferenceDailyCents: 500,         // $5 max daily inference spend
+  requireConfirmationAboveCents: 100,  // Confirm transfers >$1
 };
 
 // ─── Phase 1: Inbox Message Status ──────────────────────────────
@@ -1239,9 +1239,9 @@ export interface ModelStrategyConfig {
 }
 
 export const DEFAULT_MODEL_STRATEGY_CONFIG: ModelStrategyConfig = {
-  inferenceModel: "gpt-5.2",
-  lowComputeModel: "gpt-5-mini",
-  criticalModel: "gpt-5-mini",
+  inferenceModel: "gpt-4o-mini",
+  lowComputeModel: "gpt-4o-mini",
+  criticalModel: "gpt-4o-mini",
   maxTokensPerTurn: 4096,
   hourlyBudgetCents: 0,
   sessionBudgetCents: 0,
