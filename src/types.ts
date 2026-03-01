@@ -588,7 +588,7 @@ export const DEFAULT_TREASURY_POLICY: TreasuryPolicy = {
   maxDailyTransferCents: 1000,         // $10 max per day
   minimumReserveCents: 200,            // Keep $2 minimum reserve
   maxX402PaymentCents: 50,             // $0.50 max for x402 payments
-  x402AllowedDomains: [],
+  x402AllowedDomains: ["x402.org", "localhost"],
   transferCooldownMs: 0,
   maxTransfersPerTurn: 2,
   maxInferenceDailyCents: 500,         // $5 max daily inference spend
