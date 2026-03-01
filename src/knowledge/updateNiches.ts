@@ -14,6 +14,10 @@ import type BetterSqlite3 from "better-sqlite3";
 import type { Niche } from "../niche/types.js";
 import { evaluateNicheLegalRisk } from "../policy/legal.js";
 import { ulid } from "ulid";
+import { webSearch, resolvePerplexityApiKey } from "../tools/web-search.js";
+import { createLogger } from "../observability/logger.js";
+
+const logger = createLogger("knowledge.updateNiches");
 
 type Database = BetterSqlite3.Database;
 
@@ -373,4 +377,128 @@ export function updateNichesFromBatch(
   runUpserts();
 
   return { created, updated, rejected };
+}
+
+// ── Niche Enrichment via Web Search ─────────────────────────────
+
+/** Enrichment data returned by Perplexity-powered niche research. */
+export interface NicheEnrichment {
+  /** Estimated market size description (e.g. "$4.2B global TAM") */
+  marketSize: string;
+  /** Competitive landscape summary */
+  competition: string;
+  /** Recent trend signals */
+  trends: string;
+  /** Source URLs backing the enrichment */
+  sources: string[];
+  /** Whether enrichment was successfully performed */
+  ok: boolean;
+}
+
+const EMPTY_ENRICHMENT: NicheEnrichment = {
+  marketSize: "",
+  competition: "",
+  trends: "",
+  sources: [],
+  ok: false,
+};
+
+/**
+ * Enrich a niche candidate with real-time web data via Perplexity AI.
+ *
+ * This is optional — if no Perplexity API key is configured, the function
+ * returns an empty enrichment (no-op). Callers can use the result to
+ * adjust niche scores or add context to the niche description.
+ *
+ * @param niche - Object with name and domain of the niche to research
+ * @returns NicheEnrichment with market data, competition, and trends
+ */
+export async function enrichNicheWithWebSearch(
+  niche: { name: string; domain: string },
+): Promise<NicheEnrichment> {
+  // No-op if Perplexity is not configured
+  if (!resolvePerplexityApiKey()) {
+    logger.debug("Skipping niche enrichment — no Perplexity API key configured", {
+      niche: niche.name,
+    });
+    return EMPTY_ENRICHMENT;
+  }
+
+  const query =
+    `Market size, competition, and trends for "${niche.name}" in the ${niche.domain} sector. ` +
+    `Include estimated TAM/SAM, key competitors, and recent growth trends with specific numbers.`;
+
+  logger.info("Enriching niche via web search", { niche: niche.name, domain: niche.domain });
+
+  const result = await webSearch(query, `Industry sector: ${niche.domain}`);
+
+  if (!result.ok) {
+    logger.warn("Niche enrichment failed", {
+      niche: niche.name,
+      error: result.error,
+    });
+    return EMPTY_ENRICHMENT;
+  }
+
+  // Parse the answer into structured sections.
+  // The Perplexity response is free-form text; we do a best-effort split.
+  const answer = result.answer;
+  const sections = parseEnrichmentSections(answer);
+
+  const enrichment: NicheEnrichment = {
+    marketSize: sections.marketSize || answer.slice(0, 200),
+    competition: sections.competition || "",
+    trends: sections.trends || "",
+    sources: result.sources,
+    ok: true,
+  };
+
+  logger.info("Niche enrichment complete", {
+    niche: niche.name,
+    sourceCount: enrichment.sources.length,
+    hasMarketSize: !!enrichment.marketSize,
+    hasCompetition: !!enrichment.competition,
+    hasTrends: !!enrichment.trends,
+  });
+
+  return enrichment;
+}
+
+/**
+ * Best-effort parsing of Perplexity's free-form answer into sections.
+ * Looks for common heading patterns (Market Size, Competition, Trends).
+ */
+function parseEnrichmentSections(text: string): {
+  marketSize: string;
+  competition: string;
+  trends: string;
+} {
+  const marketSizePatterns = [
+    /market\s*size[:\s]*([^]*?)(?=competition|competitors|trends|growth|$)/i,
+    /tam[:\s/]*(?:sam)?[:\s]*([^]*?)(?=competition|competitors|trends|$)/i,
+  ];
+  const competitionPatterns = [
+    /competi(?:tion|tors?|tive\s*landscape)[:\s]*([^]*?)(?=trends?|growth|market\s*size|$)/i,
+    /key\s*players?[:\s]*([^]*?)(?=trends?|growth|market\s*size|$)/i,
+  ];
+  const trendsPatterns = [
+    /trends?[:\s]*([^]*?)(?=market\s*size|competi|$)/i,
+    /growth[:\s]*([^]*?)(?=market\s*size|competi|$)/i,
+  ];
+
+  function extractFirst(patterns: RegExp[], source: string): string {
+    for (const p of patterns) {
+      const match = p.exec(source);
+      if (match?.[1]) {
+        return match[1].trim().slice(0, 500);
+      }
+    }
+    return "";
+  }
+
+  return {
+    marketSize: extractFirst(marketSizePatterns, text),
+    competition: extractFirst(competitionPatterns, text),
+    trends: extractFirst(trendsPatterns, text),
+  };
 }

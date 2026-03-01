@@ -20,6 +20,8 @@ export interface ProviderKeys {
   ollamaBaseUrl?: string;
   /** Legacy API key — optional, only needed for cloud features */
   conwayApiKey?: string;
+  /** Perplexity AI API key for web search (market research, niche discovery) */
+  perplexityApiKey?: string;
 }
 
 const KEYS_FILENAME = "keys.json";
@@ -54,6 +56,9 @@ export function loadProviderKeys(): ProviderKeys {
   if (process.env.CONWAY_API_KEY) {
     merged.conwayApiKey = process.env.CONWAY_API_KEY;
   }
+  if (process.env.PERPLEXITY_API_KEY) {
+    merged.perplexityApiKey = process.env.PERPLEXITY_API_KEY;
+  }
 
   return merged;
 }
@@ -75,6 +80,7 @@ export function saveProviderKeys(keys: ProviderKeys): void {
   if (keys.anthropicApiKey) toSave.anthropicApiKey = keys.anthropicApiKey;
   if (keys.ollamaBaseUrl) toSave.ollamaBaseUrl = keys.ollamaBaseUrl;
   if (keys.conwayApiKey) toSave.conwayApiKey = keys.conwayApiKey;
+  if (keys.perplexityApiKey) toSave.perplexityApiKey = keys.perplexityApiKey;
 
   fs.writeFileSync(keysPath, JSON.stringify(toSave, null, 2), {
     mode: 0o600,
@@ -141,6 +147,7 @@ function loadKeysFromConfig(): ProviderKeys {
     if (config.anthropicApiKey) keys.anthropicApiKey = config.anthropicApiKey;
     if (config.ollamaBaseUrl) keys.ollamaBaseUrl = config.ollamaBaseUrl;
     if (config.conwayApiKey) keys.conwayApiKey = config.conwayApiKey;
+    if (config.perplexityApiKey) keys.perplexityApiKey = config.perplexityApiKey;
     return keys;
   } catch {
     return {};

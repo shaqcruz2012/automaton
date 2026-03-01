@@ -82,6 +82,7 @@ function startCloudflaredTunnel(port: number): Promise<string> {
 const EXTERNAL_SOURCE_TOOLS = new Set([
   "exec",
   "web_fetch",
+  "web_search",
   "check_social_inbox",
 ]);
 
@@ -3167,6 +3168,49 @@ Model: ${ctx.inference.getDefaultModel()}
         }
 
         return lines.join("\n");
+      },
+    },
+
+    // ── Web Search (Perplexity AI) ──
+    {
+      name: "web_search",
+      description:
+        "Search the web for real-time information using Perplexity AI. " +
+        "Use for market research, trend analysis, competitive intelligence, " +
+        "pricing research, and niche discovery. Returns a summarized answer with source URLs.",
+      category: "memory",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "The search query",
+          },
+          context: {
+            type: "string",
+            description:
+              "Optional additional context to refine the search (e.g. industry, region, timeframe)",
+          },
+        },
+        required: ["query"],
+      },
+      execute: async (args) => {
+        const { webSearch } = await import("../tools/web-search.js");
+        const query = args.query as string;
+        const context = args.context as string | undefined;
+
+        const result = await webSearch(query, context);
+
+        if (!result.ok) {
+          return `ERROR: ${result.error}`;
+        }
+
+        let output = result.answer;
+        if (result.sources.length > 0) {
+          output += "\n\nSources:\n" + result.sources.map((s, i) => `  [${i + 1}] ${s}`).join("\n");
+        }
+        return output;
       },
     },
   ];

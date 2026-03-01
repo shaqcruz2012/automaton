@@ -64,6 +64,8 @@ export interface AutomatonConfig {
   modelStrategy?: ModelStrategyConfig;
   /** Creator tax: auto-transfer a % of credits to creator at milestones */
   creatorTax?: CreatorTaxConfig;
+  /** Perplexity AI API key for web search (market research, niche discovery) */
+  perplexityApiKey?: string;
 }
 
 export interface CreatorTaxConfig {
