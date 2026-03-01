@@ -41,12 +41,50 @@ const ACCOUNTING_SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_expense_category ON expense_events(category);
 `;
 
+// ── Transfers Table ─────────────────────────────────────────────
+
+const TRANSFERS_SCHEMA = `
+  CREATE TABLE IF NOT EXISTS transfers (
+    id TEXT PRIMARY KEY,
+    ts TEXT NOT NULL DEFAULT (datetime('now')),
+    type TEXT NOT NULL CHECK(type IN ('tax','internal_treasury_move','replication_funding')),
+    from_account TEXT NOT NULL,
+    to_account TEXT NOT NULL,
+    amount_usd REAL NOT NULL,
+    metadata TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_transfers_type ON transfers(type);
+  CREATE INDEX IF NOT EXISTS idx_transfers_ts ON transfers(ts);
+`;
+
+/**
+ * Safely add a column to a table. Silently ignores if the column already exists.
+ */
+function safeAddColumn(db: Database, table: string, column: string, colType: string): void {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${colType}`);
+  } catch (_err) {
+    // Column already exists — ignore
+  }
+}
+
 /**
  * Ensure the accounting tables exist.
  * Call this during database initialization.
  */
 export function initAccountingSchema(db: Database): void {
   db.exec(ACCOUNTING_SCHEMA);
+
+  // Phase 5: transfers table for tax, treasury moves, and replication funding
+  db.exec(TRANSFERS_SCHEMA);
+
+  // Phase 5: Add niche_id and experiment_id columns to revenue and expense tables
+  // These are nullable so existing rows and callers are unaffected.
+  safeAddColumn(db, "revenue_events", "niche_id", "TEXT");
+  safeAddColumn(db, "revenue_events", "experiment_id", "TEXT");
+  safeAddColumn(db, "expense_events", "niche_id", "TEXT");
+  safeAddColumn(db, "expense_events", "experiment_id", "TEXT");
 }
 
 // ── Revenue ──────────────────────────────────────────────────────
@@ -57,19 +95,25 @@ export interface RevenueEvent {
   amountCents: number;
   description?: string;
   metadata?: Record<string, unknown>;
+  /** Optional niche attribution for per-niche P&L */
+  nicheId?: string;
+  /** Optional experiment attribution */
+  experimentId?: string;
 }
 
 export function logRevenue(db: Database, event: RevenueEvent): string {
   const id = event.id || ulid();
   db.prepare(
-    `INSERT INTO revenue_events (id, source, amount_cents, description, metadata)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO revenue_events (id, source, amount_cents, description, metadata, niche_id, experiment_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     event.source,
     event.amountCents,
     event.description || "",
     JSON.stringify(event.metadata || {}),
+    event.nicheId || null,
+    event.experimentId || null,
   );
   return id;
 }
@@ -84,19 +128,25 @@ export interface ExpenseEvent {
   amountCents: number;
   description?: string;
   metadata?: Record<string, unknown>;
+  /** Optional niche attribution for per-niche P&L */
+  nicheId?: string;
+  /** Optional experiment attribution */
+  experimentId?: string;
 }
 
 export function logExpense(db: Database, event: ExpenseEvent): string {
   const id = event.id || ulid();
   db.prepare(
-    `INSERT INTO expense_events (id, category, amount_cents, description, metadata)
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO expense_events (id, category, amount_cents, description, metadata, niche_id, experiment_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     event.category,
     event.amountCents,
     event.description || "",
     JSON.stringify(event.metadata || {}),
+    event.nicheId || null,
+    event.experimentId || null,
   );
   return id;
 }
@@ -231,6 +281,109 @@ export function estimateDailyBurnCents(db: Database): number {
 
   const days = Math.max(dayCountRow.days, 1);
   return Math.ceil(row.total / days);
+}
+
+// ── Transfer Events ─────────────────────────────────────────────
+
+export type TransferType = "tax" | "internal_treasury_move" | "replication_funding";
+
+export interface TransferEvent {
+  id?: string;
+  type: TransferType;
+  fromAccount: string;
+  toAccount: string;
+  amountUsd: number;
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Log a transfer event to the transfers table.
+ * Distinct from `logTransfer` which writes to expense_events.
+ */
+export function logTransferEvent(db: Database, event: TransferEvent): string {
+  const id = event.id || ulid();
+  db.prepare(
+    `INSERT INTO transfers (id, type, from_account, to_account, amount_usd, metadata)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id,
+    event.type,
+    event.fromAccount,
+    event.toAccount,
+    event.amountUsd,
+    JSON.stringify(event.metadata || {}),
+  );
+  return id;
+}
+
+// ── Niche P&L ───────────────────────────────────────────────────
+
+export interface NichePnl {
+  nicheId: string;
+  period: string;
+  revenueCents: number;
+  expenseCents: number;
+  netCents: number;
+  revenueUsd: number;
+  expenseUsd: number;
+  netUsd: number;
+  eventCount: number;
+}
+
+/**
+ * Compute P&L for a specific niche within a given period.
+ * Uses the same date windowing pattern as `computePnl`.
+ */
+export function computeNichePnl(
+  db: Database,
+  nicheId: string,
+  period: "day" | "week" | "month" | "all",
+): NichePnl {
+  const now = new Date();
+  let periodStart: string;
+
+  switch (period) {
+    case "day":
+      periodStart = new Date(now.getTime() - 86_400_000).toISOString();
+      break;
+    case "week":
+      periodStart = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+      break;
+    case "month":
+      periodStart = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+      break;
+    default:
+      periodStart = "1970-01-01T00:00:00.000Z";
+  }
+
+  // Revenue for this niche in the period
+  const revRow = db.prepare(
+    `SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as cnt
+     FROM revenue_events WHERE niche_id = ? AND created_at >= ?`,
+  ).get(nicheId, periodStart) as { total: number; cnt: number };
+
+  // Expenses for this niche in the period
+  const expRow = db.prepare(
+    `SELECT COALESCE(SUM(amount_cents), 0) as total, COUNT(*) as cnt
+     FROM expense_events WHERE niche_id = ? AND created_at >= ?`,
+  ).get(nicheId, periodStart) as { total: number; cnt: number };
+
+  const revenueCents = revRow.total;
+  const expenseCents = expRow.total;
+  const netCents = revenueCents - expenseCents;
+  const eventCount = revRow.cnt + expRow.cnt;
+
+  return {
+    nicheId,
+    period,
+    revenueCents,
+    expenseCents,
+    netCents,
+    revenueUsd: revenueCents / 100,
+    expenseUsd: expenseCents / 100,
+    netUsd: netCents / 100,
+    eventCount,
+  };
 }
 
 // ── Ledger Balance ───────────────────────────────────────────────

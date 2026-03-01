@@ -72,6 +72,8 @@ import type {
 import { ulid } from "ulid";
 import { createLogger } from "../observability/logger.js";
 import { initAccountingSchema } from "../local/accounting.js";
+import { initNicheSchema } from "../knowledge/niche-schema.js";
+import { initExperimentSchema } from "../experiments/schema.js";
 
 const logger = createLogger("database");
 
@@ -106,6 +108,12 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
 
   // Phase 4: Initialize accounting schema (revenue_events, expense_events)
   initAccountingSchema(db);
+
+  // Niche discovery schema (niches table for trend mapping)
+  initNicheSchema(db);
+
+  // Experiment planning schema (experiments table for MVP tracking)
+  initExperimentSchema(db);
 
   // Ensure version is recorded
   const versionRow = db

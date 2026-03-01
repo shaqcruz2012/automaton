@@ -46,7 +46,8 @@
     "test:security": "vitest run --grep 'security|injection|policy'",
     "test:financial": "vitest run --grep 'financial|spend|treasury'",
     "test:ci": "vitest run --reporter=verbose",
-    "clean": "rm -rf dist && pnpm -r clean"
+    "clean": "rm -rf dist && pnpm -r clean",
+    "update-niches": "tsx src/knowledge/cli-update-niches.ts"
   },
   "dependencies": {
     "@types/better-sqlite3": "^7.6.0",
