@@ -1,0 +1,22 @@
+{
+  "tiers": {
+    "summarize-basic": {
+      "price_usd": 0.25,
+      "description": "High-volume summarization of text, articles, or documents",
+      "max_input_tokens": 4000,
+      "model": "gpt-4o-mini"
+    },
+    "brief-standard": {
+      "price_usd": 2.50,
+      "description": "Structured brief with key findings, risks, and recommendations",
+      "max_input_tokens": 16000,
+      "model": "gpt-4o"
+    },
+    "brief-premium": {
+      "price_usd": 15.00,
+      "description": "Deep-dive analysis with competitive landscape and strategic recommendations",
+      "max_input_tokens": 64000,
+      "model": "gpt-4o"
+    }
+  }
+}
