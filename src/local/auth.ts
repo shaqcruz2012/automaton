@@ -3,7 +3,7 @@
  *
  * Phase 3: Manages inference provider API keys locally.
  * Keys are loaded from (in priority order):
- *   1. Environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY, OLLAMA_BASE_URL)
+ *   1. Environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY, OLLAMA_BASE_URL)
  *   2. ~/.automaton/keys.json (dedicated key store)
  *   3. automaton.json config (openaiApiKey, anthropicApiKey, ollamaBaseUrl)
  *
@@ -41,12 +41,12 @@ export function loadProviderKeys(): ProviderKeys {
     ...stored,
   };
 
-  // Environment variables override everything
-  if (process.env.OPENAI_API_KEY) {
-    merged.openaiApiKey = process.env.OPENAI_API_KEY;
-  }
+  // Environment variables override everything (Anthropic checked first as primary provider)
   if (process.env.ANTHROPIC_API_KEY) {
     merged.anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+  }
+  if (process.env.OPENAI_API_KEY) {
+    merged.openaiApiKey = process.env.OPENAI_API_KEY;
   }
   if (process.env.OLLAMA_BASE_URL) {
     merged.ollamaBaseUrl = process.env.OLLAMA_BASE_URL;
@@ -86,7 +86,7 @@ export function saveProviderKeys(keys: ProviderKeys): void {
  */
 export function hasInferenceProvider(): boolean {
   const keys = loadProviderKeys();
-  return !!(keys.openaiApiKey || keys.anthropicApiKey || keys.ollamaBaseUrl);
+  return !!(keys.anthropicApiKey || keys.openaiApiKey || keys.ollamaBaseUrl);
 }
 
 /**

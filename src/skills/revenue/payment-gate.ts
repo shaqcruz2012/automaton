@@ -77,10 +77,12 @@ export function recordRevenue(
  * Estimates based on input token count and model used.
  *
  * STUB: Cost estimation formulas:
- * - gpt-4o-mini: ~$0.15 per 1M input tokens → ~$0.00015 per 1K tokens
- *   → $0.000015 per 100 tokens → 0.0015 cents per 1K tokens
- * - gpt-4o: ~$2.50 per 1M input tokens → ~$0.0025 per 1K tokens
- *   → $0.00025 per 100 tokens → 0.25 cents per 1K tokens
+ * - claude-haiku-4-20250514: ~$0.80 per 1M input tokens → ~$0.0008 per 1K tokens
+ *   → 0.08 cents per 1K tokens
+ * - claude-sonnet-4-20250514: ~$3.00 per 1M input tokens → ~$0.003 per 1K tokens
+ *   → 0.30 cents per 1K tokens
+ * - gpt-4o-mini: ~$0.15 per 1M input tokens → ~$0.00015 per 1K tokens (fallback)
+ * - gpt-4o: ~$2.50 per 1M input tokens → ~$0.0025 per 1K tokens (fallback)
  * - Plus fixed infra overhead of $0.01 per request (1 cent)
  *
  * These are input-only estimates; output token costs are not included
@@ -101,14 +103,18 @@ export function recordExpense(
   },
 ): number {
   // Cost per 1K input tokens in cents
-  // gpt-4o-mini: $0.15/1M = $0.00015/1K = 0.015 cents/1K
-  // gpt-4o:      $2.50/1M = $0.0025/1K  = 0.25 cents/1K
+  // claude-haiku-4-20250514: $0.80/1M = $0.0008/1K = 0.08 cents/1K
+  // claude-sonnet-4-20250514: $3.00/1M = $0.003/1K = 0.30 cents/1K
+  // gpt-4o-mini: $0.15/1M = $0.00015/1K = 0.015 cents/1K (fallback)
+  // gpt-4o:      $2.50/1M = $0.0025/1K  = 0.25 cents/1K (fallback)
   const costPer1kTokensCents: Record<string, number> = {
+    "claude-haiku-4-20250514": 0.08,
+    "claude-sonnet-4-20250514": 0.30,
     "gpt-4o-mini": 0.015,
     "gpt-4o": 0.25,
   };
 
-  const perTokenCost = costPer1kTokensCents[params.model] ?? 0.25; // default to gpt-4o rate
+  const perTokenCost = costPer1kTokensCents[params.model] ?? 0.08; // default to claude-haiku rate
   const tokenCostCents = (params.inputTokensEstimate / 1000) * perTokenCost;
 
   // Fixed infra overhead: $0.01 = 1 cent per request

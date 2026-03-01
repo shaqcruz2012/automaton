@@ -38,19 +38,19 @@ const DEFAULT_PRICING: PricingConfig = {
       price_usd: 0.25,
       description: "High-volume summarization of text, articles, or documents",
       max_input_tokens: 4000,
-      model: "gpt-4o-mini",
+      model: "claude-haiku-4-20250514",
     },
     "brief-standard": {
       price_usd: 2.5,
       description: "Structured brief with key findings, risks, and recommendations",
       max_input_tokens: 16000,
-      model: "gpt-4o",
+      model: "claude-haiku-4-20250514",
     },
     "brief-premium": {
       price_usd: 15.0,
       description: "Deep-dive analysis with competitive landscape and strategic recommendations",
       max_input_tokens: 64000,
-      model: "gpt-4o",
+      model: "claude-sonnet-4-20250514",
     },
   },
 };

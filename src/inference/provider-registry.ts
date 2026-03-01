@@ -55,20 +55,65 @@ const DEFAULT_EMERGENCY_STOP_CREDITS = 100;
 
 const DEFAULT_TIER_DEFAULTS: Record<ModelTier, TierDefault> = {
   reasoning: {
-    preferredProvider: "openai",
-    fallbackOrder: ["groq", "together"],
+    preferredProvider: "anthropic",
+    fallbackOrder: ["openai", "groq", "together"],
   },
   fast: {
-    preferredProvider: "groq",
-    fallbackOrder: ["openai", "together", "local"],
+    preferredProvider: "anthropic",
+    fallbackOrder: ["groq", "openai", "together", "local"],
   },
   cheap: {
-    preferredProvider: "groq",
-    fallbackOrder: ["together", "local", "openai"],
+    preferredProvider: "anthropic",
+    fallbackOrder: ["groq", "together", "local", "openai"],
   },
 };
 
 const DEFAULT_PROVIDERS: ProviderConfig[] = [
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    baseUrl: "https://api.anthropic.com/v1",
+    apiKeyEnvVar: "ANTHROPIC_API_KEY",
+    models: [
+      {
+        id: "claude-sonnet-4-20250514",
+        tier: "reasoning",
+        contextWindow: 200000,
+        maxOutputTokens: 8192,
+        costPerInputToken: 3.0,
+        costPerOutputToken: 15.0,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStreaming: true,
+      },
+      {
+        id: "claude-haiku-4-20250514",
+        tier: "fast",
+        contextWindow: 200000,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0.8,
+        costPerOutputToken: 3.2,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStreaming: true,
+      },
+      {
+        id: "claude-haiku-4-20250514",
+        tier: "cheap",
+        contextWindow: 200000,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0.8,
+        costPerOutputToken: 3.2,
+        supportsTools: true,
+        supportsVision: true,
+        supportsStreaming: true,
+      },
+    ],
+    maxRequestsPerMinute: 1000,
+    maxTokensPerMinute: 4_000_000,
+    priority: 0,
+    enabled: true,
+  },
   {
     id: "openai",
     name: "OpenAI",

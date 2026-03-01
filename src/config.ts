@@ -137,7 +137,7 @@ export function createConfig(params: {
     openaiApiKey: params.openaiApiKey,
     anthropicApiKey: params.anthropicApiKey,
     ollamaBaseUrl: params.ollamaBaseUrl,
-    inferenceModel: DEFAULT_CONFIG.inferenceModel || "gpt-5.2",
+    inferenceModel: DEFAULT_CONFIG.inferenceModel || "claude-haiku-4-20250514",
     maxTokensPerTurn: DEFAULT_CONFIG.maxTokensPerTurn || 4096,
     heartbeatConfigPath:
       DEFAULT_CONFIG.heartbeatConfigPath || "~/.automaton/heartbeat.yml",

@@ -20,10 +20,10 @@ type Database = BetterSqlite3.Database;
 
 /**
  * /summarize-basic -- High-volume, low-ticket summarization
- * Price: $0.25 | Model: gpt-4o-mini | Max input: 4K tokens
+ * Price: $0.25 | Model: claude-haiku-4-20250514 | Max input: 4K tokens
  *
  * STUB: Returns a placeholder summary. In production, this would
- * call the inference client with gpt-4o-mini to generate a concise
+ * call the inference client with claude-haiku-4-20250514 to generate a concise
  * summary of the input content.
  */
 export async function handleSummarizeBasic(
@@ -108,10 +108,10 @@ export async function handleSummarizeBasic(
 
 /**
  * /brief-standard -- Mid-ticket structured brief
- * Price: $2.50 | Model: gpt-4o | Max input: 16K tokens
+ * Price: $2.50 | Model: claude-haiku-4-20250514 | Max input: 16K tokens
  *
  * STUB: Returns a placeholder brief. In production, this would call
- * gpt-4o with a structured prompt to generate a brief containing
+ * claude-haiku-4-20250514 with a structured prompt to generate a brief containing
  * key findings, risks, and recommendations.
  */
 export async function handleBriefStandard(
@@ -197,10 +197,10 @@ export async function handleBriefStandard(
 
 /**
  * /brief-premium -- Low-volume, high-ticket deep dive
- * Price: $15.00 | Model: gpt-4o | Max input: 64K tokens
+ * Price: $15.00 | Model: claude-sonnet-4-20250514 | Max input: 64K tokens
  *
  * STUB: Returns a placeholder deep-dive analysis. In production,
- * this would call gpt-4o with an extensive structured prompt to
+ * this would call claude-sonnet-4-20250514 with an extensive structured prompt to
  * produce a deep-dive analysis with competitive landscape and
  * strategic recommendations.
  */

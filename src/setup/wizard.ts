@@ -60,13 +60,13 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
 
   if (openaiApiKey || anthropicApiKey || ollamaBaseUrl) {
     const providers = [
-      openaiApiKey ? "OpenAI" : null,
       anthropicApiKey ? "Anthropic" : null,
+      openaiApiKey ? "OpenAI" : null,
       ollamaBaseUrl ? "Ollama" : null,
     ].filter(Boolean).join(", ");
     console.log(chalk.green(`  Provider keys/URLs saved: ${providers}\n`));
   } else {
-    console.log(chalk.yellow("  No provider keys set. Set OPENAI_API_KEY or ANTHROPIC_API_KEY env vars before running.\n"));
+    console.log(chalk.yellow("  No provider keys set. Set ANTHROPIC_API_KEY or OPENAI_API_KEY env vars before running.\n"));
   }
 
   // Persist keys to ~/.automaton/keys.json
@@ -192,7 +192,7 @@ function showFundingPanel(address: string): void {
   console.log(chalk.cyan(`  │${" ".repeat(w)}│`));
   console.log(chalk.cyan(`  │${pad("  1. Send USDC on Base directly to the address above", w)}│`));
   console.log(chalk.cyan(`  │${" ".repeat(w)}│`));
-  console.log(chalk.cyan(`  │${pad("  2. Set OPENAI_API_KEY or ANTHROPIC_API_KEY env vars", w)}│`));
+  console.log(chalk.cyan(`  │${pad("  2. Set ANTHROPIC_API_KEY or OPENAI_API_KEY env vars", w)}│`));
   console.log(chalk.cyan(`  │${pad("     for direct inference (no credits needed)", w)}│`));
   console.log(chalk.cyan(`  │${" ".repeat(w)}│`));
   console.log(chalk.cyan(`  │${pad("  The automaton will start now. Fund it anytime —", w)}│`));

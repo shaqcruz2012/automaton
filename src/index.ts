@@ -65,8 +65,8 @@ Usage:
   automaton --help         Show this help
 
 Environment:
-  OPENAI_API_KEY           OpenAI API key (primary inference provider)
-  ANTHROPIC_API_KEY        Anthropic API key (alternative inference provider)
+  ANTHROPIC_API_KEY        Anthropic API key (primary inference provider)
+  OPENAI_API_KEY           OpenAI API key (secondary/fallback inference provider)
   OLLAMA_BASE_URL          Ollama base URL (local inference, e.g. http://localhost:11434)
   CONWAY_API_URL           Conway API URL (optional, for cloud features)
   CONWAY_API_KEY           Conway API key (optional, overrides config)
@@ -93,7 +93,7 @@ Environment:
       logger.info(JSON.stringify(result));
     } catch (err: any) {
       logger.error(`Provision failed: ${err.message}`);
-      logger.info("This is optional. Set OPENAI_API_KEY or ANTHROPIC_API_KEY for local inference.");
+      logger.info("This is optional. Set ANTHROPIC_API_KEY or OPENAI_API_KEY for local inference.");
       process.exit(1);
     }
     process.exit(0);
@@ -190,9 +190,9 @@ async function run(): Promise<void> {
   const apiKey = config.conwayApiKey || loadApiKeyFromConfig() || "";
 
   // Phase 3: Conway API key is no longer required.
-  // The agent can run with just provider keys (OpenAI/Anthropic/Ollama).
+  // The agent can run with just provider keys (Anthropic/OpenAI/Ollama).
   if (!apiKey && !hasInferenceProvider()) {
-    logger.error("No API keys found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY, or run: automaton --setup");
+    logger.error("No API keys found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, or run: automaton --setup");
     process.exit(1);
   }
   if (!apiKey) {
@@ -282,7 +282,7 @@ async function run(): Promise<void> {
     apiKey,
     defaultModel: config.inferenceModel,
     maxTokens: config.maxTokensPerTurn,
-    lowComputeModel: config.modelStrategy?.lowComputeModel || "gpt-5-mini",
+    lowComputeModel: config.modelStrategy?.lowComputeModel || "claude-haiku-4-20250514",
     openaiApiKey: config.openaiApiKey,
     anthropicApiKey: config.anthropicApiKey,
     ollamaBaseUrl,

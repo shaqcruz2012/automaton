@@ -106,10 +106,10 @@ export function getModelForTier(
     case "normal":
       return defaultModel;
     case "low_compute":
-      return "gpt-5-mini";
+      return "claude-haiku-4-20250514";
     case "critical":
-      return "gpt-5-mini";
+      return "claude-haiku-4-20250514";
     case "dead":
-      return "gpt-5-mini"; // Won't be used, but just in case
+      return "claude-haiku-4-20250514"; // Won't be used, but just in case
   }
 }

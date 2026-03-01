@@ -81,7 +81,7 @@ export interface CreatorTaxConfig {
 
 export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
   conwayApiUrl: "",
-  inferenceModel: "gpt-4o-mini",
+  inferenceModel: "claude-haiku-4-20250514",
   maxTokensPerTurn: 4096,
   heartbeatConfigPath: "~/.automaton/heartbeat.yml",
   dbPath: "~/.automaton/state.db",
@@ -1239,9 +1239,9 @@ export interface ModelStrategyConfig {
 }
 
 export const DEFAULT_MODEL_STRATEGY_CONFIG: ModelStrategyConfig = {
-  inferenceModel: "gpt-4o-mini",
-  lowComputeModel: "gpt-4o-mini",
-  criticalModel: "gpt-4o-mini",
+  inferenceModel: "claude-haiku-4-20250514",
+  lowComputeModel: "claude-haiku-4-20250514",
+  criticalModel: "claude-haiku-4-20250514",
   maxTokensPerTurn: 4096,
   hourlyBudgetCents: 0,
   sessionBudgetCents: 0,
