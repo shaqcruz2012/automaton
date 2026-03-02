@@ -46,6 +46,9 @@ const FORBIDDEN_COMMAND_PATTERNS: { pattern: RegExp; description: string }[] = [
   { pattern: /kill\s+.*automaton/, description: "Kill automaton process" },
   { pattern: /pkill\s+.*automaton/, description: "Kill automaton process" },
   { pattern: /systemctl\s+(stop|disable)\s+automaton/, description: "Stop automaton service" },
+  // Windows: taskkill /IM node.exe kills ALL node processes including Datchi itself
+  { pattern: /taskkill\s+.*\/IM\s+node\.exe/i, description: "Kill all Node processes (would kill self)" },
+  { pattern: /taskkill\s+.*\/IM\s+tsx/i, description: "Kill all tsx processes (would kill self)" },
   // Database destruction
   { pattern: /DROP\s+TABLE/i, description: "Drop database table" },
   { pattern: /DELETE\s+FROM\s+(turns|identity|kv|schema_version|skills|children|registry)/i, description: "Delete from critical table" },

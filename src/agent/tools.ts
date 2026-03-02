@@ -102,6 +102,9 @@ const FORBIDDEN_COMMAND_PATTERNS = [
   /kill\s+.*automaton/,
   /pkill\s+.*automaton/,
   /systemctl\s+(stop|disable)\s+automaton/,
+  // Windows: taskkill /IM node.exe kills ALL node processes including self
+  /taskkill\s+.*\/IM\s+node\.exe/i,
+  /taskkill\s+.*\/IM\s+tsx/i,
   // Database destruction
   /DROP\s+TABLE/i,
   /DELETE\s+FROM\s+(turns|identity|kv|schema_version|skills|children|registry)/i,
