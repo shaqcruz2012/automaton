@@ -187,12 +187,18 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
       },
       execute: async (args, ctx) => {
         const filePath = args.path as string;
+        if (!filePath || typeof filePath !== "string") {
+          return "Error: 'path' is required and must be a string.";
+        }
+        if (args.content === undefined || args.content === null || typeof args.content !== "string") {
+          return "Error: 'content' is required. Your output was likely truncated (max_tokens). Write shorter content or split into multiple files.";
+        }
         // Guard against overwriting protected files (same check as edit_own_file)
         const { isProtectedFile } = await import("../self-mod/code.js");
         if (isProtectedFile(filePath)) {
           return "Blocked: Cannot overwrite protected file. This is a hard-coded safety invariant.";
         }
-        await ctx.conway.writeFile(filePath, args.content as string);
+        await ctx.conway.writeFile(filePath, args.content);
         return `File written: ${filePath}`;
       },
     },
