@@ -84,7 +84,6 @@ const COMMUNICATION_TOOLS = new Set([
 
 const MAINTENANCE_TOOLS = new Set([
   "check_credits",
-  "check_usdc_balance",
   "system_synopsis",
   "heartbeat_ping",
   "list_sandboxes",

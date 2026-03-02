@@ -364,9 +364,11 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
     },
 
     // ── Financial Tools (Phase 4: USDC-based) ──
+    // Consolidated: check_credits is the single balance tool.
+    // check_usdc_balance and topup_credits were duplicates (~200 tokens/turn saved).
     {
       name: "check_credits",
-      description: "Check your current USDC balance (treasury). This is your operating balance.",
+      description: "Check your USDC balance on Base. To receive funds, share your wallet address.",
       category: "financial",
       riskLevel: "safe",
       parameters: { type: "object", properties: {} },
@@ -376,38 +378,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
         if (!result.ok) {
           return `Failed to check balance: ${result.error}`;
         }
-        return `Treasury balance: $${result.balanceUsd.toFixed(2)} USDC on Base (${result.balanceCents} cents)`;
-      },
-    },
-    {
-      name: "check_usdc_balance",
-      description: "Check your on-chain USDC balance on Base (same as check_credits).",
-      category: "financial",
-      riskLevel: "safe",
-      parameters: { type: "object", properties: {} },
-      execute: async (_args, ctx) => {
-        const { getOnChainBalance } = await import("../local/treasury.js");
-        const result = await getOnChainBalance(ctx.identity.address);
-        if (!result.ok) {
-          return `Failed to check USDC balance: ${result.error}`;
-        }
-        return `USDC balance: $${result.balanceUsd.toFixed(6)} on Base`;
-      },
-    },
-    {
-      name: "topup_credits",
-      description:
-        "Check your current USDC balance. In sovereign mode, your balance IS your USDC on Base. To receive funds, share your wallet address. No credit conversion needed.",
-      category: "financial",
-      riskLevel: "safe",
-      parameters: { type: "object", properties: {} },
-      execute: async (_args, ctx) => {
-        const { getOnChainBalance } = await import("../local/treasury.js");
-        const result = await getOnChainBalance(ctx.identity.address);
-        if (!result.ok) {
-          return `Failed to check balance: ${result.error}`;
-        }
-        return `Current balance: $${result.balanceUsd.toFixed(2)} USDC on Base.\nTo receive funds, share your wallet address: ${ctx.identity.address}\nNo credit conversion needed — your USDC IS your operating balance.`;
+        return `Balance: $${result.balanceUsd.toFixed(2)} USDC on Base (${result.balanceCents}¢)\nWallet: ${ctx.identity.address}`;
       },
     },
     {

@@ -259,7 +259,7 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     apiKeyEnvVar: "LOCAL_API_KEY",
     models: [
       {
-        id: "llama3.3:70b",
+        id: "qwen2.5:7b",
         tier: "fast",
         contextWindow: 131072,
         maxOutputTokens: 8192,

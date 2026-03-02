@@ -152,7 +152,7 @@ export function buildContextMessages(
   if (summaryMessage) {
     messages.push({
       role: "user",
-      content: `[system] ${summaryMessage}`,
+      content: summaryMessage,
     });
   }
 
@@ -204,20 +204,6 @@ export function buildContextMessages(
         });
       }
     }
-  }
-
-  // ── Anti-Repetition Warning ──
-  // Analyze the last 5 turns for repeated tool usage
-  const analysisWindow = recentTurns.slice(-5);
-  if (analysisWindow.length >= 3) {
-    const toolFrequency: Record<string, number> = {};
-    for (const turn of analysisWindow) {
-      for (const tc of turn.toolCalls) {
-        toolFrequency[tc.name] = (toolFrequency[tc.name] || 0) + 1;
-      }
-    }
-    // Loop detection is handled in loop.ts — no additional warning here
-    // to avoid triggering "You're right" agreement patterns from Haiku.
   }
 
   // Add pending input if any
