@@ -6,7 +6,7 @@
  */
 
 import { ulid } from "ulid";
-import { spawn, type ChildProcess } from "child_process";
+import { spawn, execSync, type ChildProcess } from "child_process";
 import type {
   AutomatonTool,
   ToolContext,
@@ -26,13 +26,33 @@ import { createLogger } from "../observability/logger.js";
 const logger = createLogger("tools");
 
 // ─── Local Tunnel Registry (cloudflared) ──────────────────────
-// Tracks active cloudflared tunnel processes for local expose_port fallback
+// Tracks active cloudflared tunnel processes for local expose_port fallback.
+// Free trycloudflare.com quick tunnels have a 1-tunnel-per-IP limit,
+// so we enforce one active tunnel at a time.
 const activeTunnels = new Map<number, { process: ChildProcess; publicUrl: string }>();
 
 // Resolve cloudflared binary — check common install paths on Windows
 const CLOUDFLARED_BIN = process.platform === "win32"
   ? "C:\\Program Files (x86)\\cloudflared\\cloudflared.exe"
   : "cloudflared";
+
+/** Kill all tracked tunnels and wait briefly for cleanup. */
+async function killAllTunnels(): Promise<void> {
+  for (const [port, tunnel] of activeTunnels) {
+    try { tunnel.process.kill(); } catch { /* already dead */ }
+    activeTunnels.delete(port);
+  }
+  // Also kill any stale cloudflared processes from previous runs
+  try {
+    if (process.platform === "win32") {
+      execSync("taskkill /F /IM cloudflared.exe 2>nul", { stdio: "ignore" });
+    } else {
+      execSync("pkill -f cloudflared 2>/dev/null || true", { stdio: "ignore" });
+    }
+  } catch { /* no stale processes */ }
+  // Brief delay for OS to release resources
+  await new Promise((r) => setTimeout(r, 1500));
+}
 
 function startCloudflaredTunnel(port: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -47,6 +67,7 @@ function startCloudflaredTunnel(port: number): Promise<string> {
     const timeout = setTimeout(() => {
       if (!settled) {
         settled = true;
+        try { proc.kill(); } catch { /* already dead */ }
         reject(new Error(`Cloudflared tunnel timed out after 30s. Captured output: ${output.slice(-500)}`));
       }
     }, 30000);
@@ -77,8 +98,6 @@ function startCloudflaredTunnel(port: number): Promise<string> {
     });
 
     proc.on("exit", (code) => {
-      // Only reject if the URL wasn't already resolved — cloudflared may
-      // log errors (no cert.pem, etc.) but still produce a URL.
       if (!settled && code !== 0 && code !== null) {
         settled = true;
         clearTimeout(timeout);
@@ -86,9 +105,6 @@ function startCloudflaredTunnel(port: number): Promise<string> {
         reject(new Error(`cloudflared exited with code ${code}. Output: ${output.slice(-500)}`));
       }
     });
-
-    // NOTE: proc.unref() is called in handleData AFTER the URL is captured.
-    // Calling it here would kill the stdio pipes before cloudflared outputs the URL.
   });
 }
 
@@ -286,15 +302,30 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
           return `Port ${port} already exposed at: ${activeTunnels.get(port)!.publicUrl}`;
         }
 
-        try {
-          logger.info(`Starting cloudflared tunnel for localhost:${port}`);
-          const publicUrl = await startCloudflaredTunnel(port);
-          logger.info(`Tunnel active: ${publicUrl} → localhost:${port}`);
-          return `Port ${port} exposed at: ${publicUrl}`;
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          return `ERROR: Could not expose port ${port} locally: ${msg}`;
+        // Free quick tunnels are limited to 1 per IP — kill any existing first
+        if (activeTunnels.size > 0) {
+          logger.info("Killing existing tunnels (free quick tunnels: 1 per IP limit)");
+          await killAllTunnels();
         }
+
+        // Try up to 2 times with a delay between attempts
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            logger.info(`Starting cloudflared tunnel for localhost:${port} (attempt ${attempt})`);
+            const publicUrl = await startCloudflaredTunnel(port);
+            logger.info(`Tunnel active: ${publicUrl} → localhost:${port}`);
+            return `Port ${port} exposed at: ${publicUrl}`;
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (attempt < 2) {
+              logger.info(`Tunnel attempt ${attempt} failed: ${msg}. Cleaning up and retrying...`);
+              await killAllTunnels();
+            } else {
+              return `ERROR: Could not expose port ${port} locally after ${attempt} attempts: ${msg}`;
+            }
+          }
+        }
+        return `ERROR: Could not expose port ${port} locally`;
       },
     },
     {
