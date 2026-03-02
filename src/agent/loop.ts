@@ -302,6 +302,7 @@ export async function runAgentLoop(
   let lastToolPatterns: string[] = [];
   let loopWarningPattern: string | null = null;
   let idleToolTurns = 0;
+  let lastInferenceTimestamp = 0; // Track last inference call for rate-limit cooldown
   // blockedGoalTurns removed — replaced by immediate sleep + exponential backoff
 
   // Drain any stale wake events from before this loop started,
@@ -525,6 +526,17 @@ export async function runAgentLoop(
       // Clear pending input after use
       pendingInput = undefined;
 
+      // ── Rate-limit cooldown ──
+      // Tier 1 Haiku allows 50K input tokens/min. Each turn uses ~20-25K tokens.
+      // Enforce minimum 8s between inference calls to stay under the limit.
+      const MIN_INFERENCE_INTERVAL_MS = 8_000;
+      const timeSinceLastInference = Date.now() - lastInferenceTimestamp;
+      if (timeSinceLastInference < MIN_INFERENCE_INTERVAL_MS) {
+        const waitMs = MIN_INFERENCE_INTERVAL_MS - timeSinceLastInference;
+        log(config, `[COOLDOWN] Waiting ${Math.ceil(waitMs / 1000)}s to avoid rate limit...`);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+
       // ── Inference Call (via router when available) ──
       const survivalTier = getSurvivalTier(financial.creditsCents);
 
@@ -551,6 +563,7 @@ export async function runAgentLoop(
         },
         (msgs, opts) => inference.chat(msgs, { ...opts, tools: inferenceTools }),
       );
+      lastInferenceTimestamp = Date.now();
 
       // Build a compatible response for the rest of the loop
       const response = {
@@ -906,8 +919,9 @@ export async function runAgentLoop(
       // The API sometimes returns empty responses under load. Wait and retry
       // without counting toward the fatal error limit.
       if (errMsg.includes("No completion content")) {
-        log(config, `[EMPTY_RESPONSE] Empty completion from API. Waiting 10s before retry...`);
-        await new Promise((resolve) => setTimeout(resolve, 10_000));
+        // Log full error including diagnostic details (stop_reason, token counts)
+        log(config, `[EMPTY_RESPONSE] ${errMsg}. Waiting 15s before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, 15_000));
         continue;
       }
 
