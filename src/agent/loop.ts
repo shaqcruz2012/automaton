@@ -902,6 +902,15 @@ export async function runAgentLoop(
         continue;
       }
 
+      // ── Empty completion (transient) ──
+      // The API sometimes returns empty responses under load. Wait and retry
+      // without counting toward the fatal error limit.
+      if (errMsg.includes("No completion content")) {
+        log(config, `[EMPTY_RESPONSE] Empty completion from API. Waiting 10s before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, 10_000));
+        continue;
+      }
+
       // ── All other errors ──
       consecutiveErrors++;
       log(config, `[ERROR] Turn failed: ${errMsg}`);
