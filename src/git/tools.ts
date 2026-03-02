@@ -5,7 +5,13 @@
  * Used for both state versioning and code development.
  */
 
+import os from "node:os";
 import type { ConwayClient, GitStatus, GitLogEntry } from "../types.js";
+
+const IS_WIN = os.platform() === "win32";
+
+/** Suppress stderr — cross-platform. */
+const STDERR_NULL = IS_WIN ? "2>NUL" : "2>/dev/null";
 
 /**
  * Get git status for a repository.
@@ -15,7 +21,7 @@ export async function gitStatus(
   repoPath: string,
 ): Promise<GitStatus> {
   const result = await conway.exec(
-    `cd ${escapeShellArg(repoPath)} && git status --porcelain -b 2>/dev/null`,
+    `cd ${escapeShellArg(repoPath)} && git status --porcelain -b ${STDERR_NULL}`,
     10000,
   );
 
@@ -65,7 +71,7 @@ export async function gitDiff(
 ): Promise<string> {
   const flag = staged ? "--cached" : "";
   const result = await conway.exec(
-    `cd ${escapeShellArg(repoPath)} && git diff ${flag} 2>/dev/null`,
+    `cd ${escapeShellArg(repoPath)} && git diff ${flag} ${STDERR_NULL}`,
     10000,
   );
   return result.stdout || "(no changes)";
@@ -106,7 +112,7 @@ export async function gitLog(
 ): Promise<GitLogEntry[]> {
   const safeLimit = Math.max(1, Math.floor(Number(limit))) || 10;
   const result = await conway.exec(
-    `cd ${escapeShellArg(repoPath)} && git log --format="%H|%s|%an|%ai" -n ${safeLimit} 2>/dev/null`,
+    `cd ${escapeShellArg(repoPath)} && git log --format="%H|%s|%an|%ai" -n ${safeLimit} ${STDERR_NULL}`,
     10000,
   );
 
@@ -156,7 +162,7 @@ export async function gitBranch(
 
   switch (action) {
     case "list":
-      cmd = `cd ${escapeShellArg(repoPath)} && git branch -a 2>/dev/null`;
+      cmd = `cd ${escapeShellArg(repoPath)} && git branch -a ${STDERR_NULL}`;
       break;
     case "create":
       if (!branchName) throw new Error("Branch name required");
@@ -217,5 +223,10 @@ export async function gitInit(
 }
 
 function escapeShellArg(arg: string): string {
+  if (IS_WIN) {
+    // cmd.exe: use double quotes, escape inner double quotes
+    return `"${arg.replace(/"/g, '""')}"`;
+  }
+  // Unix: use single quotes, escape inner single quotes
   return `'${arg.replace(/'/g, "'\\''")}'`;
 }

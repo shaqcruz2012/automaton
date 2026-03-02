@@ -6,6 +6,7 @@
  */
 
 import fs from "fs";
+import os from "os";
 import pathLib from "path";
 import { createHash } from "crypto";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -28,7 +29,7 @@ export async function propagateConstitution(
   db: DatabaseType,
 ): Promise<void> {
   const constitutionPath = pathLib.join(
-    process.env.HOME || "/root",
+    os.homedir(),
     ".automaton",
     "constitution.md",
   );

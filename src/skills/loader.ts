@@ -186,7 +186,7 @@ export function getActiveSkillInstructions(skills: Skill[]): string {
 
 function resolveHome(p: string): string {
   if (p.startsWith("~")) {
-    return path.join(process.env.HOME || "/root", p.slice(1));
+    return path.join(process.env.HOME || process.env.USERPROFILE || "", p.slice(1));
   }
   return p;
 }

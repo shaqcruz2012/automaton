@@ -8,6 +8,7 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
 import type BetterSqlite3 from "better-sqlite3";
 import type { SoulModel, SoulHistoryRow } from "../types.js";
@@ -37,7 +38,7 @@ export async function updateSoul(
   soulPath?: string,
 ): Promise<UpdateSoulResult> {
   try {
-    const home = process.env.HOME || "/root";
+    const home = os.homedir();
     const resolvedPath = soulPath || path.join(home, ".automaton", "SOUL.md");
 
     // Load current soul or create default

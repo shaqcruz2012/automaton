@@ -5,6 +5,7 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
 import type { AutomatonConfig, TreasuryPolicy, ModelStrategyConfig, SoulConfig } from "./types.js";
 import type { Address } from "viem";
@@ -101,7 +102,7 @@ export function saveConfig(config: AutomatonConfig): void {
  */
 export function resolvePath(p: string): string {
   if (p.startsWith("~")) {
-    return path.join(process.env.HOME || "/root", p.slice(1));
+    return path.join(os.homedir(), p.slice(1));
   }
   return p;
 }

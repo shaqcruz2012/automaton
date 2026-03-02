@@ -141,6 +141,6 @@ export async function saveAgentCard(
   conway: ConwayClient,
 ): Promise<void> {
   const cardJson = serializeAgentCard(card);
-  const home = process.env.HOME || "/root";
+  const home = process.env.HOME || process.env.USERPROFILE || "";
   await conway.writeFile(`${home}/.automaton/agent-card.json`, cardJson);
 }

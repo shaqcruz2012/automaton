@@ -125,7 +125,7 @@ function resolveAndValidatePath(filePath: string): string | null {
     // Step 1: Resolve ~ to home
     let resolved = filePath;
     if (resolved.startsWith("~")) {
-      resolved = path.join(process.env.HOME || "/root", resolved.slice(1));
+      resolved = path.join(process.env.HOME || process.env.USERPROFILE || "", resolved.slice(1));
     }
 
     // Step 2: Resolve to absolute path (handles .. and relative paths)

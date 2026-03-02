@@ -224,11 +224,11 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
         try {
           return await ctx.conway.readFile(filePath);
         } catch {
-          // files/read API may be broken — fall back to exec(cat)
-          const result = await ctx.conway.exec(
-            `cat ${escapeShellArg(filePath)}`,
-            30_000,
-          );
+          // files/read API may be broken — fall back to exec
+          const catCmd = process.platform === "win32"
+            ? `type ${escapeShellArg(filePath)}`
+            : `cat ${escapeShellArg(filePath)}`;
+          const result = await ctx.conway.exec(catCmd, 30_000);
           if (result.exitCode !== 0) {
             return `ERROR: File not found or not readable: ${filePath}`;
           }
@@ -3420,7 +3420,10 @@ export async function executeTool(
   }
 }
 
-/** Escape a string for safe shell interpolation. */
+/** Escape a string for safe shell interpolation (cross-platform). */
 function escapeShellArg(arg: string): string {
+  if (process.platform === "win32") {
+    return `"${arg.replace(/"/g, '""')}"`;
+  }
   return `'${arg.replace(/'/g, "'\\''")}'`;
 }

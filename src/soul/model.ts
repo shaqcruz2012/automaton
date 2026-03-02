@@ -6,6 +6,7 @@
  */
 
 import fs from "fs";
+import os from "os";
 import path from "path";
 import crypto from "crypto";
 import type BetterSqlite3 from "better-sqlite3";
@@ -337,7 +338,7 @@ export function loadCurrentSoul(
   soulPath?: string,
 ): SoulModel | null {
   try {
-    const home = process.env.HOME || "/root";
+    const home = os.homedir();
     const resolvedPath = soulPath || path.join(home, ".automaton", "SOUL.md");
     if (!fs.existsSync(resolvedPath)) return null;
     const content = fs.readFileSync(resolvedPath, "utf-8");

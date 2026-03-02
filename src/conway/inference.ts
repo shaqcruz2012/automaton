@@ -336,7 +336,16 @@ async function chatViaAnthropic(params: {
     .trim();
 
   if (!textContent && !toolCalls?.length) {
-    throw new Error("No completion content returned from anthropic inference");
+    // Log diagnostic info to help debug empty responses
+    const stopReason = data.stop_reason || "unknown";
+    const contentLen = content.length;
+    const inputTokens = data.usage?.input_tokens || 0;
+    const outputTokens = data.usage?.output_tokens || 0;
+    throw new Error(
+      `No completion content returned from anthropic inference ` +
+      `(stop_reason=${stopReason}, content_blocks=${contentLen}, ` +
+      `input=${inputTokens}, output=${outputTokens})`
+    );
   }
 
   const promptTokens = data.usage?.input_tokens || 0;

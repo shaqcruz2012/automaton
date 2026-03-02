@@ -112,7 +112,7 @@ const DEFAULT_SKILLS: { dir: string; content: string }[] = [
 
 export function installDefaultSkills(skillsDir: string): void {
   const resolved = skillsDir.startsWith("~")
-    ? path.join(process.env.HOME || "/root", skillsDir.slice(1))
+    ? path.join(process.env.HOME || process.env.USERPROFILE || "", skillsDir.slice(1))
     : skillsDir;
 
   for (const skill of DEFAULT_SKILLS) {

@@ -10,10 +10,11 @@ import type { PrivateKeyAccount } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import fs from "fs";
 import path from "path";
+import os from "os";
 import type { WalletData } from "../types.js";
 
 const AUTOMATON_DIR = path.join(
-  process.env.HOME || "/root",
+  os.homedir(),
   ".automaton",
 );
 const WALLET_FILE = path.join(AUTOMATON_DIR, "wallet.json");
