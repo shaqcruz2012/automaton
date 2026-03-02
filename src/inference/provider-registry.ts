@@ -8,6 +8,7 @@ export interface ProviderConfig {
   name: string;
   baseUrl: string;
   apiKeyEnvVar: string;
+  pool?: "paid" | "free_cloud" | "local";
   models: ModelConfig[];
   maxRequestsPerMinute: number;
   maxTokensPerMinute: number;
@@ -59,24 +60,25 @@ const DEFAULT_EMERGENCY_STOP_CREDITS = 100;
 const DEFAULT_TIER_DEFAULTS: Record<ModelTier, TierDefault> = {
   reasoning: {
     preferredProvider: "anthropic",
-    fallbackOrder: ["openai", "groq", "together"],
+    fallbackOrder: ["openai", "groq", "groq-free", "cerebras", "sambanova", "together", "huggingface", "local"],
   },
   fast: {
     preferredProvider: "anthropic",
-    fallbackOrder: ["groq", "openai", "together", "local"],
+    fallbackOrder: ["groq", "groq-free", "cerebras", "sambanova", "openai", "together", "huggingface", "local"],
   },
   cheap: {
     preferredProvider: "anthropic",
-    fallbackOrder: ["groq", "together", "local", "openai"],
+    fallbackOrder: ["groq", "groq-free", "cerebras", "sambanova", "together", "huggingface", "local", "openai"],
   },
 };
 
-const DEFAULT_PROVIDERS: ProviderConfig[] = [
+export const DEFAULT_PROVIDERS: ProviderConfig[] = [
   {
     id: "anthropic",
     name: "Anthropic",
     baseUrl: "https://api.anthropic.com/v1",
     apiKeyEnvVar: "ANTHROPIC_API_KEY",
+    pool: "paid",
     models: [
       {
         id: "claude-sonnet-4-20250514",
@@ -122,6 +124,7 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     name: "OpenAI",
     baseUrl: "https://api.openai.com/v1",
     apiKeyEnvVar: "OPENAI_API_KEY",
+    pool: "paid",
     models: [
       {
         id: "gpt-4.1",
@@ -167,6 +170,7 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     name: "Groq",
     baseUrl: "https://api.groq.com/openai/v1",
     apiKeyEnvVar: "GROQ_API_KEY",
+    pool: "paid",
     models: [
       {
         id: "llama-3.3-70b-versatile",
@@ -208,10 +212,57 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     enabled: true,
   },
   {
+    id: "groq-free",
+    name: "Groq (Free Tier)",
+    baseUrl: "https://api.groq.com/openai/v1",
+    apiKeyEnvVar: "GROQ_API_KEY",
+    pool: "free_cloud",
+    models: [
+      {
+        id: "llama-3.3-70b-versatile",
+        tier: "reasoning" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "llama-3.3-70b-versatile",
+        tier: "fast" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "llama-3.1-8b-instant",
+        tier: "cheap" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 4096,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+    ],
+    maxRequestsPerMinute: 30,
+    maxTokensPerMinute: 15000,
+    priority: 5,
+    enabled: true,
+  },
+  {
     id: "together",
     name: "Together AI",
     baseUrl: "https://api.together.xyz/v1",
     apiKeyEnvVar: "TOGETHER_API_KEY",
+    pool: "free_cloud",
     models: [
       {
         id: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
@@ -250,13 +301,152 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     maxRequestsPerMinute: 600,
     maxTokensPerMinute: 1_000_000,
     priority: 3,
-    enabled: false,
+    enabled: true,
+  },
+  {
+    id: "cerebras",
+    name: "Cerebras",
+    baseUrl: "https://api.cerebras.ai/v1",
+    apiKeyEnvVar: "CEREBRAS_API_KEY",
+    pool: "free_cloud",
+    models: [
+      {
+        id: "llama-3.3-70b",
+        tier: "reasoning" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "llama-3.3-70b",
+        tier: "fast" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "qwen-3-32b",
+        tier: "cheap" as ModelTier,
+        contextWindow: 65536,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+    ],
+    maxRequestsPerMinute: 30,
+    maxTokensPerMinute: 60000,
+    priority: 6,
+    enabled: true,
+  },
+  {
+    id: "sambanova",
+    name: "SambaNova",
+    baseUrl: "https://api.sambanova.ai/v1",
+    apiKeyEnvVar: "SAMBANOVA_API_KEY",
+    pool: "free_cloud",
+    models: [
+      {
+        id: "Meta-Llama-3.3-70B-Instruct",
+        tier: "reasoning" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "Meta-Llama-3.3-70B-Instruct",
+        tier: "fast" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "Meta-Llama-3.1-8B-Instruct",
+        tier: "cheap" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 4096,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+    ],
+    maxRequestsPerMinute: 20,
+    maxTokensPerMinute: 100000,
+    priority: 7,
+    enabled: true,
+  },
+  {
+    id: "huggingface",
+    name: "HuggingFace Inference",
+    baseUrl: "https://router.huggingface.co/v1",
+    apiKeyEnvVar: "HF_API_KEY",
+    pool: "free_cloud",
+    models: [
+      {
+        id: "meta-llama/Llama-3.3-70B-Instruct",
+        tier: "reasoning" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "meta-llama/Llama-3.3-70B-Instruct",
+        tier: "fast" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "Qwen/Qwen2.5-72B-Instruct",
+        tier: "cheap" as ModelTier,
+        contextWindow: 32768,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+    ],
+    maxRequestsPerMinute: 30,
+    maxTokensPerMinute: 100000,
+    priority: 8,
+    enabled: true,
   },
   {
     id: "local",
     name: "Local (Ollama/vLLM)",
     baseUrl: "http://localhost:11434/v1",
     apiKeyEnvVar: "LOCAL_API_KEY",
+    pool: "local",
     models: [
       {
         id: "qwen2.5:7b",
@@ -295,7 +485,7 @@ export class ProviderRegistry {
   private readonly emergencyStopCredits: number;
 
   constructor(
-    providers: ProviderConfig[],
+    providers: ProviderConfig[] = DEFAULT_PROVIDERS,
     tierDefaults: Record<ModelTier, TierDefault> = DEFAULT_TIER_DEFAULTS,
     emergencyStopCredits = DEFAULT_EMERGENCY_STOP_CREDITS,
   ) {

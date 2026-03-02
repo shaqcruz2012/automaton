@@ -8,6 +8,7 @@
 export type {
   SurvivalTier,
   ModelProvider,
+  CascadePool,
   InferenceTaskType,
   ModelEntry,
   ModelPreference,

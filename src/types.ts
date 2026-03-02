@@ -67,6 +67,10 @@ export interface AutomatonConfig {
   creatorTax?: CreatorTaxConfig;
   /** Perplexity AI API key for web search (market research, niche discovery) */
   perplexityApiKey?: string;
+  cerebrasApiKey?: string;
+  sambanovaApiKey?: string;
+  togetherApiKey?: string;
+  hfApiKey?: string;
 }
 
 export interface CreatorTaxConfig {
@@ -1140,6 +1144,9 @@ export const DEFAULT_MEMORY_BUDGET: MemoryBudget = {
 // === Phase 2.3: Inference & Model Strategy Types ===
 
 export type ModelProvider = "openai" | "anthropic" | "groq" | "conway" | "ollama" | "other";
+
+/** Which inference pool the CascadeController should use */
+export type CascadePool = "paid" | "free_cloud" | "local";
 
 export type InferenceTaskType =
   | "agent_turn"
