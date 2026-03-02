@@ -306,6 +306,7 @@ export async function runAgentLoop(
   let lastInferenceTimestamp = 0; // Track last inference call for rate-limit cooldown
   let lastInputTokenCount = 0; // Track last request's input tokens for adaptive cooldown
   let emptyResponseStreak = 0; // Track consecutive empty responses for exponential backoff
+  let rateLimitStreak = 0; // Track consecutive 429s for exponential backoff
   // blockedGoalTurns removed — replaced by immediate sleep + exponential backoff
 
   // Drain any stale wake events from before this loop started,
@@ -597,6 +598,7 @@ export async function runAgentLoop(
       lastInferenceTimestamp = Date.now();
       lastInputTokenCount = routerResult.inputTokens || 0; // Track for adaptive cooldown
       emptyResponseStreak = 0; // Reset on successful inference
+      rateLimitStreak = 0; // Reset on successful inference
 
       // Build a compatible response for the rest of the loop
       const response = {
@@ -961,11 +963,13 @@ export async function runAgentLoop(
       }
 
       // ── Rate limit (429) wait ──
-      // A 429 is expected under heavy use. Wait 60s and retry without
-      // counting toward the consecutive error limit.
+      // A 429 is expected under heavy use. Use exponential backoff:
+      // 60s → 120s → 240s → 300s cap. Avoids burning through daily quotas.
       if (errMsg.includes("429") || errMsg.toLowerCase().includes("rate limit")) {
-        log(config, `[RATE_LIMIT] 429 rate limit hit. Waiting 60s before retry...`);
-        await new Promise((resolve) => setTimeout(resolve, 60_000));
+        rateLimitStreak++;
+        const backoffMs = Math.min(60_000 * Math.pow(2, rateLimitStreak - 1), 300_000);
+        log(config, `[RATE_LIMIT] 429 rate limit hit (streak ${rateLimitStreak}). Waiting ${Math.ceil(backoffMs / 1000)}s before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
         // Do NOT increment consecutiveErrors — rate limits are transient
         continue;
       }

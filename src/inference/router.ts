@@ -45,9 +45,9 @@ export class InferenceRouter {
   ): Promise<InferenceResult> {
     const { messages, taskType, tier, sessionId, turnId, tools } = request;
 
-    // 1. Select model from routing matrix
-    const model = this.selectModel(tier, taskType);
-    if (!model) {
+    // 1. Select ALL eligible candidate models (not just the first)
+    const candidates = this.selectCandidates(tier, taskType);
+    if (candidates.length === 0) {
       return {
         content: "",
         model: "none",
@@ -60,6 +60,35 @@ export class InferenceRouter {
         toolCalls: undefined,
       };
     }
+
+    // Try each candidate model; on retryable errors (429, 413, 500, 503) try the next
+    let lastError: any = null;
+    for (const model of candidates) {
+      try {
+        return await this.routeWithModel(model, request, inferenceChat);
+      } catch (error: any) {
+        lastError = error;
+        const errMsg = error?.message ?? String(error);
+        const isRetryable = /429|413|500|503|rate.limit/i.test(errMsg);
+        if (isRetryable && candidates.indexOf(model) < candidates.length - 1) {
+          // Try next candidate
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
+  }
+
+  /**
+   * Route with a specific model. Extracted from route() for model-level failover.
+   */
+  private async routeWithModel(
+    model: ModelEntry,
+    request: InferenceRequest,
+    inferenceChat: (messages: any[], options: any) => Promise<any>,
+  ): Promise<InferenceResult> {
+    const { messages, taskType, tier, sessionId, turnId, tools } = request;
 
     // 2. Estimate cost and check budget
     const estimatedTokens = messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
@@ -127,7 +156,6 @@ export class InferenceRouter {
       }
     } catch (error: any) {
       const latencyMs = Date.now() - startTime;
-      // If fallback is enabled, try next candidate
       if (error.name === "AbortError") {
         return {
           content: `Inference timeout after ${timeout}ms`,
@@ -189,6 +217,53 @@ export class InferenceRouter {
    *   2. User-configured model(s) from ModelStrategyConfig
    *      (free/Ollama models are allowed at any tier, including dead)
    */
+  /**
+   * Select ALL eligible candidate models for failover.
+   * Returns models in priority order — first candidate is preferred.
+   */
+  selectCandidates(tier: SurvivalTier, taskType: InferenceTaskType): ModelEntry[] {
+    const results: ModelEntry[] = [];
+    const seen = new Set<string>();
+
+    // 1. Routing-matrix candidates
+    const preference = this.getPreference(tier, taskType);
+    if (preference) {
+      for (const candidateId of preference.candidates) {
+        if (seen.has(candidateId)) continue;
+        const entry = this.registry.get(candidateId);
+        if (entry && entry.enabled) {
+          results.push(entry);
+          seen.add(candidateId);
+        }
+      }
+    }
+
+    // 2. User-configured fallbacks
+    const TIER_ORDER: Record<string, number> = {
+      dead: 0, critical: 1, low_compute: 2, normal: 3, high: 4,
+    };
+    const tierRank = TIER_ORDER[tier] ?? 0;
+    const strategy = this.budget.config;
+    const fallbackIds: (string | undefined)[] =
+      tier === "critical" || tier === "dead"
+        ? [strategy.criticalModel, strategy.inferenceModel, strategy.lowComputeModel]
+        : [strategy.inferenceModel, strategy.lowComputeModel, strategy.criticalModel];
+
+    for (const modelId of fallbackIds) {
+      if (!modelId || seen.has(modelId)) continue;
+      const entry = this.registry.get(modelId);
+      if (!entry || !entry.enabled) continue;
+      const isFree = entry.costPer1kInput === 0 && entry.costPer1kOutput === 0;
+      const tierOk = tierRank >= (TIER_ORDER[entry.tierMinimum] ?? 0);
+      if (isFree || tierOk) {
+        results.push(entry);
+        seen.add(modelId);
+      }
+    }
+
+    return results;
+  }
+
   selectModel(tier: SurvivalTier, taskType: InferenceTaskType): ModelEntry | null {
     const TIER_ORDER: Record<string, number> = {
       dead: 0, critical: 1, low_compute: 2, normal: 3, high: 4,
