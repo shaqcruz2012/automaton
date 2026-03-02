@@ -463,7 +463,7 @@ export async function runAgentLoop(
         const hasToolResults = lastTurn.toolCalls.length > 0;
         if (hasToolResults) {
           pendingInput = {
-            content: "Continue. Review the tool results above and decide your next concrete action. If all status checks are done, start building.",
+            content: "[system] Tool results received. Proceed with your next action.",
             source: "system",
           };
           log(config, "[NUDGE] Injected continuation directive (no pending input after tool results).");
@@ -622,12 +622,34 @@ export async function runAgentLoop(
       };
 
       // ── Execute Tool Calls ──
-      if (response.toolCalls && response.toolCalls.length > 0) {
+      // Guard: if the model hit max_tokens, the LAST tool call is likely truncated
+      // (e.g. write_file with no content). Detect and skip it.
+      let toolCallsToExecute = response.toolCalls || [];
+      if (
+        (response.finishReason === "max_tokens" || response.finishReason === "length") &&
+        toolCallsToExecute.length > 0
+      ) {
+        const lastTc = toolCallsToExecute[toolCallsToExecute.length - 1];
+        log(config, `[TRUNCATED] Output hit max_tokens — last tool call (${lastTc.function.name}) may be incomplete. Skipping it.`);
+        toolCallsToExecute = toolCallsToExecute.slice(0, -1);
+        // Add a synthetic error result so the model knows what happened
+        const truncatedResult: ToolCallResult = {
+          id: lastTc.id,
+          name: lastTc.function.name,
+          arguments: {},
+          result: "",
+          error: `Output truncated (max_tokens). Your ${lastTc.function.name} call was cut off. Write smaller content or split into multiple calls.`,
+          durationMs: 0,
+        };
+        turn.toolCalls.push(truncatedResult);
+      }
+
+      if (toolCallsToExecute.length > 0) {
         const toolCallMessages: any[] = [];
         let callCount = 0;
         const currentInputSource = currentInput?.source as InputSource | undefined;
 
-        for (const tc of response.toolCalls) {
+        for (const tc of toolCallsToExecute) {
           if (callCount >= MAX_TOOL_CALLS_PER_TURN) {
             log(config, `[TOOLS] Max tool calls per turn reached (${MAX_TOOL_CALLS_PER_TURN})`);
             break;
