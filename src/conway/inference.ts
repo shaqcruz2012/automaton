@@ -177,7 +177,19 @@ function formatMessage(
   };
 
   if (msg.name) formatted.name = msg.name;
-  if (msg.tool_calls) formatted.tool_calls = msg.tool_calls;
+  if (msg.tool_calls) {
+    // Ensure tool_call arguments are JSON strings (Ollama rejects objects)
+    formatted.tool_calls = msg.tool_calls.map((tc: any) => ({
+      ...tc,
+      function: {
+        ...tc.function,
+        arguments:
+          typeof tc.function?.arguments === "string"
+            ? tc.function.arguments
+            : JSON.stringify(tc.function?.arguments ?? {}),
+      },
+    }));
+  }
   if (msg.tool_call_id) formatted.tool_call_id = msg.tool_call_id;
 
   return formatted;
