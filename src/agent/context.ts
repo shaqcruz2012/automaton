@@ -17,13 +17,16 @@ import type {
 import { DEFAULT_TOKEN_BUDGET } from "../types.js";
 import { createTokenCounter } from "../memory/context-manager.js";
 
-const MAX_CONTEXT_TURNS = 10;
-const SUMMARY_THRESHOLD = 8;
+const MAX_CONTEXT_TURNS = 4;
+const SUMMARY_THRESHOLD = 3;
 
 let tokenCounter: ReturnType<typeof createTokenCounter> | null = null;
 
 /** Maximum size for individual tool results in characters */
-export const MAX_TOOL_RESULT_SIZE = 6_000;
+export const MAX_TOOL_RESULT_SIZE = 2_000;
+
+/** Maximum size for tool call arguments when replayed in conversation history */
+const MAX_TOOL_ARGS_SIZE = 500;
 
 // Re-export for external use
 export type { TokenBudget };
@@ -170,16 +173,22 @@ export function buildContextMessages(
         content: turn.thinking,
       };
 
-      // If there were tool calls, include them
+      // If there were tool calls, include them (truncate large arguments to save tokens)
       if (turn.toolCalls.length > 0) {
-        msg.tool_calls = turn.toolCalls.map((tc) => ({
-          id: tc.id,
-          type: "function" as const,
-          function: {
-            name: tc.name,
-            arguments: JSON.stringify(tc.arguments),
-          },
-        }));
+        msg.tool_calls = turn.toolCalls.map((tc) => {
+          let argsStr = JSON.stringify(tc.arguments);
+          if (argsStr.length > MAX_TOOL_ARGS_SIZE) {
+            argsStr = argsStr.slice(0, MAX_TOOL_ARGS_SIZE) + '..."}}';
+          }
+          return {
+            id: tc.id,
+            type: "function" as const,
+            function: {
+              name: tc.name,
+              arguments: argsStr,
+            },
+          };
+        });
       }
       messages.push(msg);
 

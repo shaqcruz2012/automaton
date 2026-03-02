@@ -450,7 +450,7 @@ export async function runAgentLoop(
         "check_inference_spending",
         "orchestrator_status", "list_goals", "get_plan",
       ]);
-      const allTurns = db.getRecentTurns(10);
+      const allTurns = db.getRecentTurns(6);
 
       // ── Continuation nudge ──
       // When pendingInput is empty (no new user/inbox/wakeup input) but we have
