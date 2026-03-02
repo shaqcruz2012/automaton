@@ -984,8 +984,8 @@ export async function runAgentLoop(
       // ── Billing/auth exhaustion (non-transient) ──
       // If the provider is out of credits and no fallback succeeded,
       // retrying won't help. Sleep immediately instead of burning 5 retries.
-      if (/credit balance|insufficient.*funds|billing|quota.*exceeded|payment.*required/i.test(errMsg)) {
-        log(config, `[BILLING] Provider credits exhausted. Sleeping 5min. Set GROQ_API_KEY for free fallback.`);
+      if (/credit balance is too low|insufficient.*funds|payment.*required/i.test(errMsg)) {
+        log(config, `[BILLING] Provider credits exhausted. Sleeping 5min.`);
         db.setKV("sleep_until", new Date(Date.now() + 300_000).toISOString());
         db.setAgentState("sleeping");
         onStateChange?.("sleeping");
