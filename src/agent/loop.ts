@@ -303,6 +303,7 @@ export async function runAgentLoop(
   let loopWarningPattern: string | null = null;
   let idleToolTurns = 0;
   let lastInferenceTimestamp = 0; // Track last inference call for rate-limit cooldown
+  let emptyResponseStreak = 0; // Track consecutive empty responses for exponential backoff
   // blockedGoalTurns removed — replaced by immediate sleep + exponential backoff
 
   // Drain any stale wake events from before this loop started,
@@ -564,6 +565,7 @@ export async function runAgentLoop(
         (msgs, opts) => inference.chat(msgs, { ...opts, tools: inferenceTools }),
       );
       lastInferenceTimestamp = Date.now();
+      emptyResponseStreak = 0; // Reset on successful inference
 
       // Build a compatible response for the rest of the loop
       const response = {
@@ -916,12 +918,13 @@ export async function runAgentLoop(
       }
 
       // ── Empty completion (transient) ──
-      // The API sometimes returns empty responses under load. Wait and retry
-      // without counting toward the fatal error limit.
+      // The API sometimes returns empty responses under load/rate limits.
+      // Use exponential backoff: 15s → 30s → 60s → 60s...
       if (errMsg.includes("No completion content")) {
-        // Log full error including diagnostic details (stop_reason, token counts)
-        log(config, `[EMPTY_RESPONSE] ${errMsg}. Waiting 15s before retry...`);
-        await new Promise((resolve) => setTimeout(resolve, 15_000));
+        emptyResponseStreak++;
+        const backoffMs = Math.min(15_000 * Math.pow(2, emptyResponseStreak - 1), 60_000);
+        log(config, `[EMPTY_RESPONSE] ${errMsg}. Streak: ${emptyResponseStreak}, waiting ${Math.ceil(backoffMs / 1000)}s...`);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
         continue;
       }
 

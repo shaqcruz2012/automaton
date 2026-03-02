@@ -115,6 +115,7 @@ export function createConwayClient(options: ConwayClientOptions): ConwayClient {
         encoding: "utf-8",
         maxBuffer: 10 * 1024 * 1024,
         cwd: os.homedir(),
+        stdio: ["pipe", "pipe", "pipe"], // Capture ALL streams — prevent stderr leaking to console
       });
       return { stdout: stdout || "", stderr: "", exitCode: 0 };
     } catch (err: any) {
