@@ -36,21 +36,27 @@ const CLOUDFLARED_BIN = process.platform === "win32"
 
 function startCloudflaredTunnel(port: number): Promise<string> {
   return new Promise((resolve, reject) => {
+    let settled = false;
     const proc = spawn(CLOUDFLARED_BIN, ["tunnel", "--url", `http://localhost:${port}`], {
       stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
+      windowsHide: true,
+      // NOTE: do NOT use detached:true — on Windows it causes cloudflared to exit with code 1
     });
 
     let output = "";
     const timeout = setTimeout(() => {
-      reject(new Error("Cloudflared tunnel timed out after 20s waiting for URL"));
-    }, 20000);
+      if (!settled) {
+        settled = true;
+        reject(new Error(`Cloudflared tunnel timed out after 30s. Captured output: ${output.slice(-500)}`));
+      }
+    }, 30000);
 
     const handleData = (data: Buffer) => {
       output += data.toString();
       // cloudflared outputs the trycloudflare.com URL to stderr
       const match = output.match(/https:\/\/[a-zA-Z0-9-]+\.trycloudflare\.com/);
-      if (match) {
+      if (match && !settled) {
+        settled = true;
         clearTimeout(timeout);
         activeTunnels.set(port, { process: proc, publicUrl: match[0] });
         resolve(match[0]);
@@ -61,19 +67,25 @@ function startCloudflaredTunnel(port: number): Promise<string> {
     proc.stdout?.on("data", handleData);
 
     proc.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(new Error(`Failed to start cloudflared: ${err.message}. Is cloudflared installed?`));
-    });
-
-    proc.on("exit", (code) => {
-      clearTimeout(timeout);
-      activeTunnels.delete(port);
-      if (code !== 0 && code !== null) {
-        reject(new Error(`cloudflared exited with code ${code}`));
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeout);
+        reject(new Error(`Failed to start cloudflared: ${err.message}. Is cloudflared installed?`));
       }
     });
 
-    // Prevent parent from waiting on detached child
+    proc.on("exit", (code) => {
+      // Only reject if the URL wasn't already resolved — cloudflared may
+      // log errors (no cert.pem, etc.) but still produce a URL.
+      if (!settled && code !== 0 && code !== null) {
+        settled = true;
+        clearTimeout(timeout);
+        activeTunnels.delete(port);
+        reject(new Error(`cloudflared exited with code ${code}. Output: ${output.slice(-500)}`));
+      }
+    });
+
+    // Allow Node event loop to continue even if tunnel is running
     proc.unref();
   });
 }
