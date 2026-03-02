@@ -1951,11 +1951,11 @@ Model: ${ctx.inference.getDefaultModel()}
 
     // === Phase 3.2: Social & Registry Tools ===
 
-    // ── Social / Messaging Tools ──
+    // ── Social / Messaging Tools (disabled — no social relay) ──
     {
       name: "send_message",
       description:
-        "Send a signed message to another automaton or address via the social relay.",
+        "DISABLED. Social relay is not available. Do NOT call this tool — it will always fail. Write to WORKLOG.md instead.",
       category: "conway",
       riskLevel: "caution",
       parameters: {
@@ -1976,7 +1976,11 @@ Model: ${ctx.inference.getDefaultModel()}
         },
         required: ["to_address", "content"],
       },
-      execute: async (args, ctx) => {
+      execute: async (_args, _ctx) => {
+        return "DISABLED: Social relay is not configured and will not be available. Do not retry. Write status updates to WORKLOG.md instead — your creator reads it directly.";
+      },
+      /* original implementation preserved for when social relay is re-enabled:
+      execute_original: async (args, ctx) => {
         if (!ctx.social) {
           return "Social relay not configured. Set socialRelayUrl in config.";
         }
@@ -1993,6 +1997,7 @@ Model: ${ctx.inference.getDefaultModel()}
         );
         return `Message sent (id: ${result.id})`;
       },
+      */
     },
 
     // ── Model Discovery (enhanced with Phase 2.3 tier routing + pricing) ──
