@@ -20,10 +20,8 @@ const INFERENCE_TIMEOUT_MS = 60_000;
 
 /** Errors that indicate the provider's billing/auth is exhausted — not transient, needs fallback */
 const BILLING_ERROR_PATTERNS = [
-  /credit balance/i,
+  /credit balance is too low/i,
   /insufficient.*funds/i,
-  /billing/i,
-  /quota.*exceeded/i,
   /payment.*required/i,
 ];
 
