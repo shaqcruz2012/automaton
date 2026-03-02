@@ -50,6 +50,7 @@ import { ulid } from "ulid";
 import { ModelRegistry } from "../inference/registry.js";
 import { InferenceBudgetTracker } from "../inference/budget.js";
 import { InferenceRouter } from "../inference/router.js";
+import { CascadeController } from "../inference/cascade-controller.js";
 import { MemoryRetriever } from "../memory/retrieval.js";
 import { MemoryIngestionPipeline } from "../memory/ingestion.js";
 import { DEFAULT_MEMORY_BUDGET } from "../types.js";
@@ -125,6 +126,7 @@ export async function runAgentLoop(
   }
   const budgetTracker = new InferenceBudgetTracker(db.raw, modelStrategyConfig);
   const inferenceRouter = new InferenceRouter(db.raw, modelRegistry, budgetTracker);
+  const cascadeController = new CascadeController(db.raw);
 
   // Optional orchestration bootstrap (requires V9 goals/task tables)
   let planModeController: PlanModeController | undefined;
@@ -584,7 +586,7 @@ export async function runAgentLoop(
       // tokens per turn. Phase-based filtering cuts this by 40-60%.
       const filteredTools = filterToolsByPhase(tools, detectedTaskType, survivalTier);
       const inferenceTools = toolsToInferenceFormat(filteredTools);
-      const routerResult = await inferenceRouter.route(
+      const routerResult = await cascadeController.infer(
         {
           messages: messages,
           taskType: detectedTaskType,
@@ -593,6 +595,7 @@ export async function runAgentLoop(
           turnId: ulid(),
           tools: inferenceTools,
         },
+        inferenceRouter,
         (msgs, opts) => inference.chat(msgs, { ...opts, tools: inferenceTools }),
       );
       lastInferenceTimestamp = Date.now();

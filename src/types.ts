@@ -1143,7 +1143,7 @@ export const DEFAULT_MEMORY_BUDGET: MemoryBudget = {
 
 // === Phase 2.3: Inference & Model Strategy Types ===
 
-export type ModelProvider = "openai" | "anthropic" | "groq" | "conway" | "ollama" | "other";
+export type ModelProvider = "openai" | "anthropic" | "groq" | "conway" | "ollama" | "cerebras" | "sambanova" | "huggingface" | "other";
 
 /** Which inference pool the CascadeController should use */
 export type CascadePool = "paid" | "free_cloud" | "local";

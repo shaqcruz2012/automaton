@@ -35,6 +35,12 @@ export function loadConfig(): AutomatonConfig | null {
     const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     const apiKey = raw.conwayApiKey || loadApiKeyFromConfig();
 
+    // Cascade inference provider API keys (config JSON or env vars)
+    const cerebrasApiKey = raw.cerebrasApiKey || process.env.CEREBRAS_API_KEY;
+    const sambanovaApiKey = raw.sambanovaApiKey || process.env.SAMBANOVA_API_KEY;
+    const togetherApiKey = raw.togetherApiKey || process.env.TOGETHER_API_KEY;
+    const hfApiKey = raw.hfApiKey || process.env.HF_API_KEY;
+
     // Deep-merge treasury policy with defaults
     const treasuryPolicy: TreasuryPolicy = {
       ...DEFAULT_TREASURY_POLICY,
@@ -66,6 +72,10 @@ export function loadConfig(): AutomatonConfig | null {
       ...DEFAULT_CONFIG,
       ...raw,
       conwayApiKey: apiKey,
+      cerebrasApiKey,
+      sambanovaApiKey,
+      togetherApiKey,
+      hfApiKey,
       treasuryPolicy,
       modelStrategy,
       soulConfig,
@@ -122,6 +132,10 @@ export function createConfig(params: {
   openaiApiKey?: string;
   anthropicApiKey?: string;
   ollamaBaseUrl?: string;
+  cerebrasApiKey?: string;
+  sambanovaApiKey?: string;
+  togetherApiKey?: string;
+  hfApiKey?: string;
   parentAddress?: Address;
   treasuryPolicy?: TreasuryPolicy;
 }): AutomatonConfig {
@@ -138,6 +152,10 @@ export function createConfig(params: {
     openaiApiKey: params.openaiApiKey,
     anthropicApiKey: params.anthropicApiKey,
     ollamaBaseUrl: params.ollamaBaseUrl,
+    cerebrasApiKey: params.cerebrasApiKey,
+    sambanovaApiKey: params.sambanovaApiKey,
+    togetherApiKey: params.togetherApiKey,
+    hfApiKey: params.hfApiKey,
     inferenceModel: DEFAULT_CONFIG.inferenceModel || "claude-haiku-4-5-20251001",
     maxTokensPerTurn: DEFAULT_CONFIG.maxTokensPerTurn || 4096,
     heartbeatConfigPath:
