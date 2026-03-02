@@ -75,6 +75,7 @@ const DEFAULT_TIERS: Record<string, GatewayTier> = {
   "trustcheck": {
     route: "/trustcheck",
     backend: "http://127.0.0.1:9002",
+    backendPath: "/check",
     priceUsd: 0.05,
     priceAtomic: usdToAtomic(0.05),
     maxInputTokens: 1000,

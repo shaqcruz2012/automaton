@@ -199,11 +199,12 @@ export function createGatewayServer(options: GatewayOptions) {
     // Read request body
     const body = await readBody(req);
 
-    // Proxy to backend
+    // Proxy to backend (use backendPath if specified, otherwise route)
     const backendUrl = resolveBackend(tier.backend);
+    const backendPath = tier.backendPath ?? tier.route;
     const proxyResult = await proxyRequest({
       backend: backendUrl,
-      path: tier.route,
+      path: backendPath,
       method: "POST",
       body,
       headers: {

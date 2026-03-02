@@ -7,6 +7,7 @@ import type { Address } from "viem";
 export interface GatewayTier {
   route: string;
   backend: string;         // e.g., "http://127.0.0.1:9000"
+  backendPath?: string;    // Path on backend (defaults to route if omitted)
   priceUsd: number;        // e.g., 0.25
   priceAtomic: string;     // USDC 6-decimal string, e.g., "250000"
   maxInputTokens: number;
