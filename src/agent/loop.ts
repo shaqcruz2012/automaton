@@ -303,6 +303,7 @@ export async function runAgentLoop(
   let loopWarningPattern: string | null = null;
   let idleToolTurns = 0;
   let lastInferenceTimestamp = 0; // Track last inference call for rate-limit cooldown
+  let lastInputTokenCount = 0; // Track last request's input tokens for adaptive cooldown
   let emptyResponseStreak = 0; // Track consecutive empty responses for exponential backoff
   // blockedGoalTurns removed — replaced by immediate sleep + exponential backoff
 
@@ -469,17 +470,23 @@ export async function runAgentLoop(
         isFirstRun,
       });
 
-      // Phase 2.2: Pre-turn memory retrieval
+      // Early task type detection — used to skip heavy context for triage turns.
+      // Triage turns (wakeup/orientation) don't need memory retrieval, saving ~2-5K tokens.
+      const earlyTaskType = detectTaskType(pendingInput, recentTurns);
+
+      // Phase 2.2: Pre-turn memory retrieval (skip for triage to reduce input tokens)
       let memoryBlock: string | undefined;
-      try {
-        const retriever = new MemoryRetriever(db.raw, DEFAULT_MEMORY_BUDGET);
-        const memories = retriever.retrieve(sessionId, pendingInput?.content);
-        if (memories.totalTokens > 0) {
-          memoryBlock = formatMemoryBlock(memories);
+      if (earlyTaskType !== "heartbeat_triage") {
+        try {
+          const retriever = new MemoryRetriever(db.raw, DEFAULT_MEMORY_BUDGET);
+          const memories = retriever.retrieve(sessionId, pendingInput?.content);
+          if (memories.totalTokens > 0) {
+            memoryBlock = formatMemoryBlock(memories);
+          }
+        } catch (error) {
+          logger.error("Memory retrieval failed", error instanceof Error ? error : undefined);
+          // Memory failure must not block the agent loop
         }
-      } catch (error) {
-        logger.error("Memory retrieval failed", error instanceof Error ? error : undefined);
-        // Memory failure must not block the agent loop
       }
 
       let messages = buildContextMessages(
@@ -527,25 +534,28 @@ export async function runAgentLoop(
       // Clear pending input after use
       pendingInput = undefined;
 
-      // ── Rate-limit cooldown ──
-      // Tier 1 Haiku allows 50K input tokens/min. Each turn uses ~20-25K tokens.
-      // Enforce minimum 8s between inference calls to stay under the limit.
-      const MIN_INFERENCE_INTERVAL_MS = 8_000;
+      // ── Adaptive rate-limit cooldown ──
+      // Tier 1 Haiku: 50K input tokens/min. Cooldown scales with actual token usage.
+      // At 25K tokens/call: ~33s cooldown (2 calls/min = 50K tokens/min).
+      // At 12K tokens/call: ~16s cooldown (4 calls/min = 48K tokens/min).
+      // Minimum 10s floor to avoid any burst issues.
+      const INPUT_TOKENS_PER_MINUTE_LIMIT = 40_000; // 80% of Tier 1's 50K (safety margin)
+      const estimatedTokens = lastInputTokenCount || 15_000; // conservative estimate if unknown
+      const adaptiveCooldownMs = Math.ceil((estimatedTokens / INPUT_TOKENS_PER_MINUTE_LIMIT) * 60_000);
+      const MIN_INFERENCE_INTERVAL_MS = Math.max(10_000, adaptiveCooldownMs);
       const timeSinceLastInference = Date.now() - lastInferenceTimestamp;
       if (timeSinceLastInference < MIN_INFERENCE_INTERVAL_MS) {
         const waitMs = MIN_INFERENCE_INTERVAL_MS - timeSinceLastInference;
-        log(config, `[COOLDOWN] Waiting ${Math.ceil(waitMs / 1000)}s to avoid rate limit...`);
+        log(config, `[COOLDOWN] Waiting ${Math.ceil(waitMs / 1000)}s (adaptive: ${Math.ceil(MIN_INFERENCE_INTERVAL_MS / 1000)}s for ~${estimatedTokens} tokens)...`);
         await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
 
       // ── Inference Call (via router when available) ──
       const survivalTier = getSurvivalTier(financial.creditsCents);
 
-      // Fix 7: Detect task type for model routing.
-      // Instead of always using "agent_turn", classify the task so the router
-      // can select cheaper models for orientation/summarization turns and
-      // reserve expensive models for complex planning/execution.
-      const detectedTaskType = detectTaskType(currentInput, recentTurns);
+      // Fix 7: Reuse early task type detection for model routing.
+      // This was already computed before memory retrieval to decide whether to skip it.
+      const detectedTaskType = earlyTaskType;
       log(config, `[THINK] Routing inference (tier: ${survivalTier}, task: ${detectedTaskType}, model: ${inference.getDefaultModel()})...`);
 
       // Fix 4: Dynamic tool selection — filter tools based on phase and tier
@@ -565,6 +575,7 @@ export async function runAgentLoop(
         (msgs, opts) => inference.chat(msgs, { ...opts, tools: inferenceTools }),
       );
       lastInferenceTimestamp = Date.now();
+      lastInputTokenCount = routerResult.inputTokens || 0; // Track for adaptive cooldown
       emptyResponseStreak = 0; // Reset on successful inference
 
       // Build a compatible response for the rest of the loop
