@@ -135,6 +135,9 @@ const FORBIDDEN_COMMAND_PATTERNS = [
   // Windows: taskkill /IM node.exe kills ALL node processes including self
   /taskkill\s+.*\/IM\s+node\.exe/i,
   /taskkill\s+.*\/IM\s+tsx/i,
+  // PowerShell: Get-Process node | Stop-Process also kills all node
+  /Get-Process\s+node.*Stop-Process/i,
+  /Stop-Process\s+.*-Name\s+node/i,
   // Database destruction
   /DROP\s+TABLE/i,
   /DELETE\s+FROM\s+(turns|identity|kv|schema_version|skills|children|registry)/i,

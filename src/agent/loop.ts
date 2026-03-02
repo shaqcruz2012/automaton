@@ -302,6 +302,7 @@ export async function runAgentLoop(
   let lastToolPatterns: string[] = [];
   let loopWarningPattern: string | null = null;
   let idleToolTurns = 0;
+  let writeFileCount = 0; // tracks write_file calls across turns (even interleaved with exec)
   let lastInferenceTimestamp = 0; // Track last inference call for rate-limit cooldown
   let lastInputTokenCount = 0; // Track last request's input tokens for adaptive cooldown
   let emptyResponseStreak = 0; // Track consecutive empty responses for exponential backoff
@@ -463,7 +464,7 @@ export async function runAgentLoop(
         const hasToolResults = lastTurn.toolCalls.length > 0;
         if (hasToolResults) {
           pendingInput = {
-            content: "[system] Tool results received. Proceed with your next action.",
+            content: "▶",
             source: "system",
           };
           log(config, "[NUDGE] Injected continuation directive (no pending input after tool results).");
@@ -836,6 +837,22 @@ export async function runAgentLoop(
           }
         } else {
           idleToolTurns = 0;
+        }
+
+        // Detect write_file churn: repeated file writes across turns (even interleaved with exec)
+        if (turn.toolCalls.some((tc) => tc.name === "write_file")) {
+          writeFileCount++;
+          if (writeFileCount >= 4 && !pendingInput) {
+            log(config, `[LOOP] Write churn detected: ${writeFileCount} write_file calls across recent turns`);
+            pendingInput = {
+              content:
+                `WRITE CHURN: You have written files ${writeFileCount} times recently without starting any service. ` +
+                `STOP rewriting files. Instead: start the file you already wrote with 'start /B node file.js' (Windows) ` +
+                `or background it. If the file is truncated, use exec with echo/append to build it line-by-line.`,
+              source: "system",
+            };
+            writeFileCount = 0;
+          }
         }
       }
 
