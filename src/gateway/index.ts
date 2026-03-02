@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import Database from "better-sqlite3";
+import type { PrivateKeyAccount } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createGatewayServer } from "./server.js";
 import { initNonceSchema } from "./nonces.js";
@@ -23,7 +24,7 @@ const WALLET_PATH = process.env.WALLET_PATH ??
 
 function main() {
   // Load wallet
-  let account;
+  let account: PrivateKeyAccount | undefined;
   try {
     const walletRaw = fs.readFileSync(WALLET_PATH, "utf-8");
     const wallet = JSON.parse(walletRaw);
