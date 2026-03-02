@@ -668,16 +668,6 @@ export class MemoryIngestionPipeline {
           });
         }
 
-        if (tc.name === "check_usdc_balance" && tc.result) {
-          this.semantic.store({
-            category: "financial",
-            key: "usdc_balance",
-            value: tc.result,
-            confidence: 1.0,
-            source: sessionId,
-          });
-        }
-
         if (tc.name === "discover_agents" && tc.result && !tc.result.includes("No agents")) {
           this.semantic.store({
             category: "environment",

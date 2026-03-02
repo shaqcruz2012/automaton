@@ -18,6 +18,15 @@ import { ResilientHttpClient } from "./http-client.js";
 
 const INFERENCE_TIMEOUT_MS = 60_000;
 
+/** Errors that indicate the provider's billing/auth is exhausted — not transient, needs fallback */
+const BILLING_ERROR_PATTERNS = [
+  /credit balance/i,
+  /insufficient.*funds/i,
+  /billing/i,
+  /quota.*exceeded/i,
+  /payment.*required/i,
+];
+
 interface InferenceClientOptions {
   apiUrl: string;
   apiKey: string;
@@ -86,15 +95,33 @@ export function createInferenceClient(
     }
 
     if (backend === "anthropic") {
-      return chatViaAnthropic({
-        model,
-        tokenLimit,
-        messages,
-        tools,
-        temperature: opts?.temperature,
-        anthropicApiKey: anthropicApiKey as string,
-        httpClient,
-      });
+      try {
+        return await chatViaAnthropic({
+          model,
+          tokenLimit,
+          messages,
+          tools,
+          temperature: opts?.temperature,
+          anthropicApiKey: anthropicApiKey as string,
+          httpClient,
+        });
+      } catch (err: any) {
+        // On billing/auth errors, try fallback providers instead of failing
+        if (isBillingError(err)) {
+          const fallback = resolveFallbackBackend({ openaiApiKey, ollamaBaseUrl });
+          if (fallback) {
+            return chatViaOpenAiCompatible({
+              model: fallback.model,
+              body: { ...body, model: fallback.model, max_tokens: tokenLimit },
+              apiUrl: fallback.apiUrl,
+              apiKey: fallback.apiKey,
+              backend: fallback.backend,
+              httpClient,
+            });
+          }
+        }
+        throw err;
+      }
     }
 
     const openAiLikeApiUrl =
@@ -480,4 +507,49 @@ function normalizeAnthropicFinishReason(reason: unknown): string {
   if (typeof reason !== "string") return "stop";
   if (reason === "tool_use") return "tool_calls";
   return reason;
+}
+
+/** Check if an error is a billing/auth exhaustion (not transient) */
+function isBillingError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return BILLING_ERROR_PATTERNS.some((p) => p.test(msg));
+}
+
+/** Find the best available fallback provider when the primary (Anthropic) is down */
+function resolveFallbackBackend(keys: {
+  openaiApiKey?: string;
+  ollamaBaseUrl?: string;
+}): { apiUrl: string; apiKey: string; model: string; backend: "openai" | "ollama" } | null {
+  // 1. Groq (fast, free tier) — uses GROQ_API_KEY via OpenAI-compatible endpoint
+  const groqKey = process.env.GROQ_API_KEY;
+  if (groqKey) {
+    return {
+      apiUrl: "https://api.groq.com/openai",
+      apiKey: groqKey,
+      model: "llama-3.3-70b-versatile",
+      backend: "openai",
+    };
+  }
+
+  // 2. OpenAI (paid, but different billing)
+  if (keys.openaiApiKey) {
+    return {
+      apiUrl: "https://api.openai.com",
+      apiKey: keys.openaiApiKey,
+      model: "gpt-4.1-mini",
+      backend: "openai",
+    };
+  }
+
+  // 3. Ollama (local, free) — qwen2.5:7b has strong tool-calling accuracy
+  if (keys.ollamaBaseUrl) {
+    return {
+      apiUrl: keys.ollamaBaseUrl.replace(/\/$/, ""),
+      apiKey: "ollama",
+      model: "qwen2.5:7b",
+      backend: "ollama",
+    };
+  }
+
+  return null;
 }

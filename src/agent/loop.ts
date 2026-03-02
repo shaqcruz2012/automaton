@@ -444,7 +444,7 @@ export async function runAgentLoop(
       // Build context — filter out purely idle turns (only status checks)
       // to prevent the model from continuing a status-check pattern
       const IDLE_ONLY_TOOLS = new Set([
-        "check_credits", "check_usdc_balance", "system_synopsis", "review_memory",
+        "check_credits", "system_synopsis", "review_memory",
         "list_children", "check_child_status", "list_sandboxes", "list_models",
         "list_skills", "git_status", "git_log", "check_reputation",
         "recall_facts", "recall_procedure", "heartbeat_ping",
@@ -872,7 +872,7 @@ export async function runAgentLoop(
       // (no mutations — only read/check/list/info tools), count as idle.
       // Use a blocklist of mutating tools rather than an allowlist of safe ones.
       const MUTATING_TOOLS = new Set([
-        "exec", "write_file", "edit_own_file", "transfer_credits", "topup_credits", "fund_child",
+        "exec", "write_file", "edit_own_file", "transfer_credits", "fund_child",
         "spawn_child", "start_child", "delete_sandbox", "create_sandbox",
         "install_npm_package", "install_mcp_server", "install_skill",
         "create_skill", "remove_skill", "install_skill_from_git",
@@ -935,20 +935,8 @@ export async function runAgentLoop(
 
       consecutiveErrors = 0;
 
-      // ── Inter-turn delay ──
-      // Pace inference calls to avoid hammering rate limits.
-      // Faster tiers can afford shorter delays; low tiers throttle harder.
-      if (running) {
-        const tierDelays: Record<string, number> = {
-          high: 1_000,
-          normal: 2_000,
-          low_compute: 5_000,
-          critical: 10_000,
-          dead: 10_000,
-        };
-        const delayMs = tierDelays[survivalTier] ?? 2_000;
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
+      // Inter-turn pacing is handled by the adaptive cooldown above (lines 557-571).
+      // No additional tier-based delay needed — it was double-stacking 1-10s of waste.
     } catch (err: any) {
       const errMsg: string = err?.message ?? String(err);
 
@@ -991,6 +979,18 @@ export async function runAgentLoop(
         log(config, `[EMPTY_RESPONSE] ${errMsg}. Streak: ${emptyResponseStreak}, waiting ${Math.ceil(backoffMs / 1000)}s...`);
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
         continue;
+      }
+
+      // ── Billing/auth exhaustion (non-transient) ──
+      // If the provider is out of credits and no fallback succeeded,
+      // retrying won't help. Sleep immediately instead of burning 5 retries.
+      if (/credit balance|insufficient.*funds|billing|quota.*exceeded|payment.*required/i.test(errMsg)) {
+        log(config, `[BILLING] Provider credits exhausted. Sleeping 5min. Set GROQ_API_KEY for free fallback.`);
+        db.setKV("sleep_until", new Date(Date.now() + 300_000).toISOString());
+        db.setAgentState("sleeping");
+        onStateChange?.("sleeping");
+        running = false;
+        break;
       }
 
       // ── All other errors ──
@@ -1130,7 +1130,7 @@ function filterToolsByPhase(
   if (tier === "critical" || tier === "dead") {
     const SURVIVAL_TOOLS = new Set([
       ...CORE_TOOLS,
-      "check_usdc_balance", "topup_credits", "transfer_credits",
+      "transfer_credits",
       "distress_signal", "enter_low_compute", "switch_model",
     ]);
     return tools.filter(t => SURVIVAL_TOOLS.has(t.name));
@@ -1196,7 +1196,7 @@ function detectTaskType(
   // If recent turns are all idle/status checks, this is orientation
   if (recentTurns.length > 0) {
     const ORIENTATION_TOOLS = new Set([
-      "check_credits", "check_usdc_balance", "system_synopsis", "review_memory",
+      "check_credits", "system_synopsis", "review_memory",
       "list_children", "check_child_status", "list_sandboxes", "list_models",
       "list_skills", "git_status", "git_log", "check_reputation",
       "recall_facts", "recall_procedure", "heartbeat_ping",

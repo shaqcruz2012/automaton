@@ -67,7 +67,7 @@ auto-activate: true
 
 When handling financial operations:
 
-1. Check USDC balance with \`check_usdc_balance\`
+1. Check USDC balance with \`check_credits\`
 2. Use x402 protocol for paying for services
 3. Use \`transfer_credits\` for direct funding operations
 5. Keep a reserve balance for self-preservation

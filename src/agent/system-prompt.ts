@@ -373,7 +373,7 @@ Data directory: ${dataDir}
   const worklogContent = loadWorklog();
   if (worklogContent) {
     dynamicSections.push(
-      `--- WORKLOG.md (your persistent working context — UPDATE THIS after each task!) ---\n${worklogContent}\n--- END WORKLOG.md ---\n\nIMPORTANT: After completing any task or making any decision, update WORKLOG.md using write_file.\nThis is how you remember what you were doing across turns. Without it, you lose context and repeat yourself.`,
+      `--- WORKLOG.md (UPDATE after each task) ---\n${worklogContent}\n--- END WORKLOG.md ---`,
     );
   }
 
@@ -528,12 +528,9 @@ What will you do first? Consider:
     )
     .join("\n");
 
-  return `You are waking up. You last went to sleep after ${turnCount} total turns.
+  return `Waking after ${turnCount} turns. Credits: $${(financial.creditsCents / 100).toFixed(2)}.
 
-Your credits: $${(financial.creditsCents / 100).toFixed(2)} | USDC: ${financial.usdcBalance.toFixed(4)}
+${lastTurnSummary ? `Last thoughts:\n${lastTurnSummary}` : ""}
 
-Your last few thoughts:
-${lastTurnSummary || "No previous turns found."}
-
-What triggered this wake-up? Check your credits, heartbeat status, and goals, then decide what to do.`;
+Status is in system prompt — skip orientation. Read WORKLOG.md and execute next task.`;
 }

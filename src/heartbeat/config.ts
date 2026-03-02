@@ -13,7 +13,7 @@ import { createLogger } from "../observability/logger.js";
 
 const logger = createLogger("heartbeat.config");
 
-const USDC_TOPUP_ENTRY_NAME = "check_usdc_balance";
+const USDC_TOPUP_ENTRY_NAME = "check_credits";
 const USDC_TOPUP_FAST_SCHEDULE = "*/5 * * * *";
 const USDC_TOPUP_OLD_SCHEDULE = "0 */12 * * *";
 
@@ -27,14 +27,8 @@ const DEFAULT_HEARTBEAT_CONFIG: HeartbeatConfig = {
     },
     {
       name: "check_credits",
-      schedule: "0 */6 * * *",
-      task: "check_credits",
-      enabled: true,
-    },
-    {
-      name: "check_usdc_balance",
       schedule: USDC_TOPUP_FAST_SCHEDULE,
-      task: "check_usdc_balance",
+      task: "check_credits",
       enabled: true,
     },
     {
