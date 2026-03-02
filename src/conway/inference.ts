@@ -35,17 +35,18 @@ interface InferenceClientOptions {
   lowComputeModel?: string;
   openaiApiKey?: string;
   anthropicApiKey?: string;
+  groqApiKey?: string;
   ollamaBaseUrl?: string;
   /** Optional registry lookup — if provided, used before name heuristics */
   getModelProvider?: (modelId: string) => string | undefined;
 }
 
-type InferenceBackend = "conway" | "openai" | "anthropic" | "ollama";
+type InferenceBackend = "conway" | "openai" | "anthropic" | "groq" | "ollama";
 
 export function createInferenceClient(
   options: InferenceClientOptions,
 ): InferenceClient {
-  const { apiUrl, apiKey, openaiApiKey, anthropicApiKey, ollamaBaseUrl, getModelProvider } = options;
+  const { apiUrl, apiKey, openaiApiKey, anthropicApiKey, groqApiKey, ollamaBaseUrl, getModelProvider } = options;
   const httpClient = new ResilientHttpClient({
     baseTimeout: INFERENCE_TIMEOUT_MS,
     retryableStatuses: [429, 500, 502, 503, 504],
@@ -63,6 +64,7 @@ export function createInferenceClient(
     const backend = resolveInferenceBackend(model, {
       openaiApiKey,
       anthropicApiKey,
+      groqApiKey,
       ollamaBaseUrl,
       getModelProvider,
     });
@@ -108,7 +110,7 @@ export function createInferenceClient(
       } catch (err: any) {
         // On billing/auth errors, try fallback providers instead of failing
         if (isBillingError(err)) {
-          const fallback = resolveFallbackBackend({ openaiApiKey, ollamaBaseUrl });
+          const fallback = resolveFallbackBackend({ groqApiKey, openaiApiKey, ollamaBaseUrl });
           if (fallback) {
             return chatViaOpenAiCompatible({
               model: fallback.model,
@@ -125,10 +127,12 @@ export function createInferenceClient(
     }
 
     const openAiLikeApiUrl =
+      backend === "groq" ? "https://api.groq.com/openai" :
       backend === "openai" ? "https://api.openai.com" :
       backend === "ollama" ? (ollamaBaseUrl as string).replace(/\/$/, "") :
       apiUrl;
     const openAiLikeApiKey =
+      backend === "groq" ? (groqApiKey as string) :
       backend === "openai" ? (openaiApiKey as string) :
       backend === "ollama" ? "ollama" :
       apiKey;
@@ -205,6 +209,7 @@ function resolveInferenceBackend(
   keys: {
     openaiApiKey?: string;
     anthropicApiKey?: string;
+    groqApiKey?: string;
     ollamaBaseUrl?: string;
     getModelProvider?: (modelId: string) => string | undefined;
   },
@@ -212,6 +217,7 @@ function resolveInferenceBackend(
   // Registry-based routing: most accurate, no name guessing
   if (keys.getModelProvider) {
     const provider = keys.getModelProvider(model);
+    if (provider === "groq" && keys.groqApiKey) return "groq";
     if (provider === "ollama" && keys.ollamaBaseUrl) return "ollama";
     if (provider === "anthropic" && keys.anthropicApiKey) return "anthropic";
     if (provider === "openai" && keys.openaiApiKey) return "openai";
@@ -231,7 +237,7 @@ async function chatViaOpenAiCompatible(params: {
   body: Record<string, unknown>;
   apiUrl: string;
   apiKey: string;
-  backend: "conway" | "openai" | "ollama";
+  backend: "conway" | "openai" | "groq" | "ollama";
   httpClient: ResilientHttpClient;
 }): Promise<InferenceResponse> {
   const resp = await params.httpClient.request(`${params.apiUrl}/v1/chat/completions`, {
@@ -239,7 +245,7 @@ async function chatViaOpenAiCompatible(params: {
     headers: {
       "Content-Type": "application/json",
       Authorization:
-        params.backend === "openai" || params.backend === "ollama"
+        params.backend === "openai" || params.backend === "groq" || params.backend === "ollama"
           ? `Bearer ${params.apiKey}`
           : params.apiKey,
     },
@@ -527,19 +533,20 @@ function isBillingError(err: unknown): boolean {
   return BILLING_ERROR_PATTERNS.some((p) => p.test(msg));
 }
 
-/** Find the best available fallback provider when the primary (Anthropic) is down */
+/** Find the best available fallback provider when the primary is down */
 function resolveFallbackBackend(keys: {
+  groqApiKey?: string;
   openaiApiKey?: string;
   ollamaBaseUrl?: string;
-}): { apiUrl: string; apiKey: string; model: string; backend: "openai" | "ollama" } | null {
-  // 1. Groq (fast, free tier) — uses GROQ_API_KEY via OpenAI-compatible endpoint
-  const groqKey = process.env.GROQ_API_KEY;
+}): { apiUrl: string; apiKey: string; model: string; backend: "groq" | "openai" | "ollama" } | null {
+  // 1. Groq (fast, free tier)
+  const groqKey = keys.groqApiKey || process.env.GROQ_API_KEY;
   if (groqKey) {
     return {
       apiUrl: "https://api.groq.com/openai",
       apiKey: groqKey,
       model: "llama-3.3-70b-versatile",
-      backend: "openai",
+      backend: "groq",
     };
   }
 

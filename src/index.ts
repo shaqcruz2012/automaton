@@ -283,6 +283,7 @@ async function run(): Promise<void> {
     lowComputeModel: config.modelStrategy?.lowComputeModel || "claude-haiku-4-5-20251001",
     openaiApiKey: config.openaiApiKey,
     anthropicApiKey: config.anthropicApiKey,
+    groqApiKey: config.groqApiKey || process.env.GROQ_API_KEY,
     ollamaBaseUrl,
     getModelProvider: (modelId) => modelRegistry.get(modelId)?.provider,
   });
