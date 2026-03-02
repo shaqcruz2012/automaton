@@ -555,13 +555,13 @@ export async function runAgentLoop(
 
       // ── Adaptive rate-limit cooldown ──
       // Tier 1 Haiku: 50K input tokens/min. Cooldown scales with actual token usage.
-      // At 25K tokens/call: ~33s cooldown (2 calls/min = 50K tokens/min).
-      // At 12K tokens/call: ~16s cooldown (4 calls/min = 48K tokens/min).
-      // Minimum 10s floor to avoid any burst issues.
-      const INPUT_TOKENS_PER_MINUTE_LIMIT = 40_000; // 80% of Tier 1's 50K (safety margin)
-      const estimatedTokens = lastInputTokenCount || 15_000; // conservative estimate if unknown
+      // At 16K tokens/call: ~20s cooldown (3 calls/min = 48K tokens/min).
+      // At 12K tokens/call: ~15s cooldown (4 calls/min = 48K tokens/min).
+      // Minimum 5s floor. If we hit 429, the retry logic handles it.
+      const INPUT_TOKENS_PER_MINUTE_LIMIT = 48_000; // 95% of Tier 1's 50K
+      const estimatedTokens = lastInputTokenCount || 12_000;
       const adaptiveCooldownMs = Math.ceil((estimatedTokens / INPUT_TOKENS_PER_MINUTE_LIMIT) * 60_000);
-      const MIN_INFERENCE_INTERVAL_MS = Math.max(10_000, adaptiveCooldownMs);
+      const MIN_INFERENCE_INTERVAL_MS = Math.max(5_000, adaptiveCooldownMs);
       const timeSinceLastInference = Date.now() - lastInferenceTimestamp;
       if (timeSinceLastInference < MIN_INFERENCE_INTERVAL_MS) {
         const waitMs = MIN_INFERENCE_INTERVAL_MS - timeSinceLastInference;
@@ -638,7 +638,7 @@ export async function runAgentLoop(
           name: lastTc.function.name,
           arguments: {},
           result: "",
-          error: `Output truncated (max_tokens). Your ${lastTc.function.name} call was cut off. Write smaller content or split into multiple calls.`,
+          error: `TRUNCATED: Your ${lastTc.function.name} output exceeded max_tokens (8192). For write_file: use exec with 'echo' or write <100 lines at a time. Do NOT retry the same large write.`,
           durationMs: 0,
         };
         turn.toolCalls.push(truncatedResult);
