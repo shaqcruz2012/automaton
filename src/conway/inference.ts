@@ -135,21 +135,20 @@ export function createInferenceClient(
       backend === "ollama" ? "ollama" :
       apiKey;
 
-    // Groq free tier has a 12K TPM limit — fall back to Ollama on 413/429
-    if (backend === "groq" && ollamaBaseUrl) {
+    // Groq free tier has a 12K TPM limit — on 413, retry without tools
+    // so the agent can still think/plan. Tools come back next turn.
+    if (backend === "groq") {
       try {
         return await chatViaOpenAiCompatible({
           model, body, apiUrl: openAiLikeApiUrl, apiKey: openAiLikeApiKey, backend, httpClient,
         });
       } catch (err: any) {
-        if (/41[39]/.test(err?.message)) {
+        if (/413/.test(err?.message) && body.tools) {
+          const trimmedBody = { ...body };
+          delete trimmedBody.tools;
+          delete trimmedBody.tool_choice;
           return chatViaOpenAiCompatible({
-            model: "qwen2.5:7b",
-            body: { ...body, model: "qwen2.5:7b" },
-            apiUrl: ollamaBaseUrl.replace(/\/$/, ""),
-            apiKey: "ollama",
-            backend: "ollama",
-            httpClient,
+            model, body: trimmedBody, apiUrl: openAiLikeApiUrl, apiKey: openAiLikeApiKey, backend, httpClient,
           });
         }
         throw err;
