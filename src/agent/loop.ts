@@ -451,6 +451,25 @@ export async function runAgentLoop(
         "orchestrator_status", "list_goals", "get_plan",
       ]);
       const allTurns = db.getRecentTurns(10);
+
+      // ── Continuation nudge ──
+      // When pendingInput is empty (no new user/inbox/wakeup input) but we have
+      // previous turns, the conversation ends with tool_result blocks and no
+      // follow-up user message. Haiku sees tool results but no directive → generates
+      // 3 empty tokens and returns end_turn with content_blocks=0.
+      // Fix: inject a brief nudge so the model always has a clear final directive.
+      if (!pendingInput && allTurns.length > 0) {
+        const lastTurn = allTurns[allTurns.length - 1];
+        const hasToolResults = lastTurn.toolCalls.length > 0;
+        if (hasToolResults) {
+          pendingInput = {
+            content: "Continue. Review the tool results above and decide your next concrete action. If all status checks are done, start building.",
+            source: "system",
+          };
+          log(config, "[NUDGE] Injected continuation directive (no pending input after tool results).");
+        }
+      }
+
       const meaningfulTurns = allTurns.filter((t) => {
         if (t.toolCalls.length === 0) return true; // text-only turns are meaningful
         return t.toolCalls.some((tc) => !IDLE_ONLY_TOOLS.has(tc.name));
