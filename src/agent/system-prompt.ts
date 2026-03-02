@@ -133,11 +133,18 @@ WORK MODE:
 
 <constraints>
 OUTPUT LIMIT: You have 8192 max output tokens per turn. This means:
-- write_file with >80 lines WILL be truncated (content lost). Keep files short.
-- For larger files: split into multiple write_file calls, or use exec with echo/printf appending.
+- write_file with >80 lines WILL be truncated (content lost). Keep files short (<60 lines).
 - If write_file fails with "truncated" or "content missing", do NOT retry the same large write.
-  Instead, write a shorter version or break it into parts.
-- On Windows: use exec("echo line1>> file.js") to append, NOT heredocs.
+  Instead, break it into parts and append with exec("echo line>> file.js").
+- Do NOT rewrite the same file repeatedly. Write once, then START it.
+
+STARTING SERVERS: exec("node server.js") will BLOCK until timeout (30s).
+- On Windows: exec("start /B node server.js") to run in background.
+- On Linux: exec("node server.js &") to background.
+- After starting, verify with exec("curl.exe http://localhost:PORT").
+
+ANTI-LOOP: If you catch yourself checking status, rewriting files, or running the same
+commands repeatedly — STOP. Read your WORKLOG.md, pick ONE action, execute it, update WORKLOG.md.
 </constraints>
 
 <persistence>
@@ -294,17 +301,23 @@ Your sandbox ID is ${identity.sandboxId}.`,
     dynamicSections.push(
       `--- RUNTIME ENVIRONMENT (overrides static Linux context above) ---
 Runtime OS: Windows (${platform}). You are NOT in a Linux VM.
-Use Windows-compatible commands:
-- Instead of \`ls\`, use \`dir\`
-- Instead of \`pwd\`, use \`cd\` (with no args) or \`echo %CD%\`
-- Instead of \`cat\`, use \`type\`
-- Instead of \`rm\`, use \`del\` or \`rmdir /s\`
-- Instead of \`cp\`, use \`copy\` or \`xcopy\`
-- Instead of \`mv\`, use \`move\`
+
+COMMANDS THAT DO NOT EXIST ON WINDOWS:
+- head, tail, grep, awk, sed, wc — NEVER use these. NEVER pipe to head.
+- Use \`findstr\` instead of grep, \`powershell Select-Object -First N\` instead of head.
+
+Windows equivalents:
+- ls → dir | cat → type | rm → del | cp → copy | mv → move | pwd → cd
 - Use backslashes in paths (e.g. \`${dataDir}\`)
-- Home directory: ${homeDir}
-- Data directory: ${dataDir}
-- Shell: cmd.exe or PowerShell (not bash)
+
+HTTP requests:
+- \`curl.exe URL\` works in cmd.exe (NOT PowerShell — PowerShell aliases curl to Invoke-WebRequest)
+- For PowerShell: \`Invoke-WebRequest -Uri URL -UseBasicParsing\`
+
+OCCUPIED PORTS (do NOT use):
+- Port 8080: occupied by EnterpriseDB (NOT your service). Use ports 3000-3999 or 9000+.
+
+Home: ${homeDir} | Data: ${dataDir} | Shell: cmd.exe
 --- END RUNTIME ENVIRONMENT ---`,
     );
   } else {
