@@ -178,7 +178,8 @@ export function buildContextMessages(
         msg.tool_calls = turn.toolCalls.map((tc) => {
           let argsStr = JSON.stringify(tc.arguments);
           if (argsStr.length > MAX_TOOL_ARGS_SIZE) {
-            argsStr = argsStr.slice(0, MAX_TOOL_ARGS_SIZE) + '..."}}';
+            // Replace with valid JSON — slicing produces broken JSON that Ollama rejects
+            argsStr = JSON.stringify({ _truncated: true });
           }
           return {
             id: tc.id,
