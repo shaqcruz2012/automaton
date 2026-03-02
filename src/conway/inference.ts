@@ -135,6 +135,27 @@ export function createInferenceClient(
       backend === "ollama" ? "ollama" :
       apiKey;
 
+    // Groq free tier has a 12K TPM limit — fall back to Ollama on 413/429
+    if (backend === "groq" && ollamaBaseUrl) {
+      try {
+        return await chatViaOpenAiCompatible({
+          model, body, apiUrl: openAiLikeApiUrl, apiKey: openAiLikeApiKey, backend, httpClient,
+        });
+      } catch (err: any) {
+        if (/41[39]/.test(err?.message)) {
+          return chatViaOpenAiCompatible({
+            model: "qwen2.5:7b",
+            body: { ...body, model: "qwen2.5:7b" },
+            apiUrl: ollamaBaseUrl.replace(/\/$/, ""),
+            apiKey: "ollama",
+            backend: "ollama",
+            httpClient,
+          });
+        }
+        throw err;
+      }
+    }
+
     return chatViaOpenAiCompatible({
       model,
       body,

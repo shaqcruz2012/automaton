@@ -867,11 +867,11 @@ export interface TokenBudget {
 }
 
 export const DEFAULT_TOKEN_BUDGET: TokenBudget = {
-  total: 20_000,
+  total: 10_000,
   systemPrompt: 2_000,
-  recentTurns: 12_000,
-  toolResults: 4_000,
-  memoryRetrieval: 2_000,
+  recentTurns: 5_000,
+  toolResults: 2_000,
+  memoryRetrieval: 1_000,
 };
 
 // ─── Phase 1: Runtime Reliability ───────────────────────────────
