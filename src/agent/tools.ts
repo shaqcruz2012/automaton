@@ -59,6 +59,8 @@ function startCloudflaredTunnel(port: number): Promise<string> {
         settled = true;
         clearTimeout(timeout);
         activeTunnels.set(port, { process: proc, publicUrl: match[0] });
+        // Only unref AFTER we have the URL — unref before this kills the pipes
+        proc.unref();
         resolve(match[0]);
       }
     };
@@ -85,8 +87,8 @@ function startCloudflaredTunnel(port: number): Promise<string> {
       }
     });
 
-    // Allow Node event loop to continue even if tunnel is running
-    proc.unref();
+    // NOTE: proc.unref() is called in handleData AFTER the URL is captured.
+    // Calling it here would kill the stdio pipes before cloudflared outputs the URL.
   });
 }
 
