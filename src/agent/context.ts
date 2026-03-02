@@ -216,26 +216,18 @@ export function buildContextMessages(
         toolFrequency[tc.name] = (toolFrequency[tc.name] || 0) + 1;
       }
     }
-    const repeatedTools = Object.entries(toolFrequency)
-      .filter(([, count]) => count >= 3)
-      .map(([name]) => name);
-    if (repeatedTools.length > 0) {
-      messages.push({
-        role: "user",
-        content:
-          `[system] WARNING: You have been calling ${repeatedTools.join(", ")} repeatedly in recent turns. ` +
-          `You already have this information. Move on to BUILDING something. ` +
-          `Write code, create files, set up a service. Do not check status again.`,
-      });
-    }
+    // Loop detection is handled in loop.ts — no additional warning here
+    // to avoid triggering "You're right" agreement patterns from Haiku.
   }
 
   // Add pending input if any
   if (pendingInput) {
-    messages.push({
-      role: "user",
-      content: `[${pendingInput.source}] ${pendingInput.content}`,
-    });
+    // For auto-generated nudges (source "system"), send content raw
+    // to avoid "[system] ▶" pattern that triggers "You're right" from Haiku.
+    const content = pendingInput.source === "system"
+      ? pendingInput.content
+      : `[${pendingInput.source}] ${pendingInput.content}`;
+    messages.push({ role: "user", content });
   }
 
   return messages;
