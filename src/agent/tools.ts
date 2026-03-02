@@ -194,7 +194,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
           return "Error: 'path' is required and must be a string.";
         }
         if (args.content === undefined || args.content === null || typeof args.content !== "string") {
-          return "Error: 'content' is required. Your output was likely truncated (max_tokens). Write shorter content or split into multiple files.";
+          return "Error: 'content' is missing (output truncated at max_tokens). Write <100 lines at a time or use exec with echo/printf. Do NOT retry the same large write.";
         }
         // Guard against overwriting protected files (same check as edit_own_file)
         const { isProtectedFile } = await import("../self-mod/code.js");
