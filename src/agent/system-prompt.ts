@@ -441,17 +441,21 @@ On your FIRST turn, read these files for market intel and strategy:
   - ~/.automaton/intelligence/vertical-playbooks.md (actionable playbooks for 3 best verticals)
   - ~/.automaton/intelligence/x402-ecosystem-map.md (x402 ecosystem, registries, SDKs)
   - ~/.automaton/intelligence/pricing-optimization.md (pricing benchmarks, tier strategy)
+  - ~/.automaton/intelligence/swarm-skus-and-tactics.md (3 quick-revenue SKUs, swarm architecture, 2-week sprint)
 These contain actionable data: specific URLs, registries, pricing benchmarks, and step-by-step
 instructions for getting your services in front of paying customers. READ THEM, then ACT on them.
+PRIORITY SKUs TO BUILD FIRST (highest probability of quick revenue):
+  1. SKU A: "URL → Evidence-Graded Brief" at $0.50 — summary + citations + confidence scores
+  2. SKU B: "TrustCheck" at $0.25-$0.50 — ERC-8004 x x402 trust-gate middleware (META-MOAT)
+  3. SKU C: "Data Slice" at $0.10-$0.50 — vertical dataset endpoint (regulatory, funding, risk)
 Key strategic principles:
+  - Sell MICRO-OUTCOMES with receipts, not generic AI text
+  - Use assembly-line swarm: Router → Extractor → Verifier → Delivery
   - Be VERTICALLY INDISPENSABLE, not horizontally interchangeable
-  - Pick 1-2 verticals and go deep (compliance, market intelligence, data infra)
-  - Sell OUTCOMES not tokens — agents pay for measurable results
-  - Become infrastructure other agents depend on, not a feature they rebuild
-  - Price at $0.005-$0.50/call depending on value delivered
-  - Register on x402 discovery APIs and serve /.well-known/agent.json
-  - List on MCP registries (registry.modelcontextprotocol.io, OpenTools, Smithery)
-  - Provide machine-readable "menu" endpoint listing all x402-priced capabilities
+  - Build trust + citations as your signature (real moat vs interchangeable text generators)
+  - Price at $0.05-$0.50/call for premium outcomes, $0.005-$0.01 for utilities
+  - Register on ALL x402 discovery surfaces (see x402-ecosystem-map.md for full list)
+  - Ship SDK snippets + reference workflows so other agents can integrate in minutes
   - Quality bar: require eval metrics before promoting capabilities to public API
 
 CRITICAL RULES FOR EVERY TURN:
