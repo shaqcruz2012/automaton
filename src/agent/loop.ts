@@ -762,8 +762,16 @@ export async function runAgentLoop(
 
       // ── Loop Detection ──
       if (turn.toolCalls.length > 0) {
+        // Include first 30 chars of args for exec/write_file so different commands
+        // (curl vs netstat vs tasklist) don't all collapse to "exec,exec,exec"
         const currentPattern = turn.toolCalls
-          .map((tc) => tc.name)
+          .map((tc) => {
+            if (tc.name === "exec" || tc.name === "write_file") {
+              const argSnippet = JSON.stringify(tc.arguments).slice(0, 30);
+              return `${tc.name}:${argSnippet}`;
+            }
+            return tc.name;
+          })
           .sort()
           .join(",");
         lastToolPatterns.push(currentPattern);
