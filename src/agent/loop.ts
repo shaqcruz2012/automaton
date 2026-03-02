@@ -788,9 +788,7 @@ export async function runAgentLoop(
         ) {
           log(config, `[LOOP] Enforcement: agent ignored loop warning, forcing sleep.`);
           pendingInput = {
-            content:
-              `LOOP ENFORCEMENT: You were warned about repeating "${currentPattern}" but continued. ` +
-              `Forcing sleep to prevent credit waste. On next wake, try a DIFFERENT approach.`,
+            content: `[loop-enforcement:${currentPattern}] sleeping`,
             source: "system",
           };
           loopWarningPattern = null;
@@ -808,10 +806,7 @@ export async function runAgentLoop(
         ) {
           log(config, `[LOOP] Repetitive pattern detected: ${currentPattern}`);
           pendingInput = {
-            content:
-              `LOOP DETECTED: You have called "${currentPattern}" ${MAX_REPETITIVE_TURNS} times in a row with similar results. ` +
-              `STOP repeating yourself. You already know your status. DO SOMETHING DIFFERENT NOW. ` +
-              `Pick ONE concrete task from your genesis prompt and execute it.`,
+            content: `[loop:${currentPattern}] try different approach`,
             source: "system",
           };
           loopWarningPattern = currentPattern;
@@ -826,11 +821,7 @@ export async function runAgentLoop(
           if (idleToolTurns >= MAX_REPETITIVE_TURNS && !pendingInput) {
             log(config, `[LOOP] Maintenance loop detected: ${idleToolTurns} consecutive idle-only turns`);
             pendingInput = {
-              content:
-                `MAINTENANCE LOOP DETECTED: Your last ${idleToolTurns} turns only used status-check tools ` +
-                `(${turn.toolCalls.map((tc) => tc.name).join(", ")}). ` +
-                `You already know your status. Review your genesis prompt and SOUL.md, then execute a CONCRETE task. ` +
-                `Write code, create a file, register a service, or build something new.`,
+              content: `[idle-loop:${idleToolTurns}x] status known, build something`,
               source: "system",
             };
             idleToolTurns = 0;
@@ -845,10 +836,7 @@ export async function runAgentLoop(
           if (writeFileCount >= 4 && !pendingInput) {
             log(config, `[LOOP] Write churn detected: ${writeFileCount} write_file calls across recent turns`);
             pendingInput = {
-              content:
-                `WRITE CHURN: You have written files ${writeFileCount} times recently without starting any service. ` +
-                `STOP rewriting files. Instead: start the file you already wrote with 'start /B node file.js' (Windows) ` +
-                `or background it. If the file is truncated, use exec with echo/append to build it line-by-line.`,
+              content: `[write-churn:${writeFileCount}x] start existing file instead of rewriting`,
               source: "system",
             };
             writeFileCount = 0;
