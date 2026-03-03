@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { CascadePool } from "../types.js";
 import { ProviderRegistry } from "../inference/provider-registry.js";
 import { POOL_CASCADE_ORDER, getProvidersForPool, getNextPool } from "../inference/pools.js";

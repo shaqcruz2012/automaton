@@ -11,12 +11,20 @@
  * - normal/high tier + profitable -> PAID
  * - normal/high tier + unprofitable -> FREE_CLOUD
  * - On pool exhaustion (all providers 429/500) -> cascade to next pool
+ *
+ * For the PAID pool: delegates to the InferenceRouter (which knows about
+ * Anthropic native API, OpenAI, Groq paid).
+ *
+ * For FREE_CLOUD and LOCAL pools: iterates through each provider directly
+ * using OpenAI-compatible /v1/chat/completions calls, since the inference
+ * client doesn't know about Cerebras/SambaNova/HuggingFace endpoints.
  */
 
 import type BetterSqlite3 from "better-sqlite3";
 import type { CascadePool, SurvivalTier, InferenceRequest, InferenceResult } from "../types.js";
 import type { InferenceRouter } from "./router.js";
 import { getProvidersForPool, getNextPool } from "./pools.js";
+import type { ProviderConfig, ModelConfig } from "./provider-registry.js";
 import { createLogger } from "../observability/logger.js";
 
 type Database = BetterSqlite3.Database;
@@ -26,11 +34,114 @@ const logger = createLogger("cascade");
 /** Cache P&L for 5 minutes to avoid constant DB queries */
 const PNL_CACHE_TTL_MS = 5 * 60 * 1000;
 
+/** Timeout for direct provider calls */
+const PROVIDER_TIMEOUT_MS = 60_000;
+
 interface PnlCache {
   netCents: number;
   revenueCents: number;
   expenseCents: number;
   cachedAt: number;
+}
+
+/**
+ * Pick the best model from a provider for the given task.
+ * Prefers: reasoning for agent_turn/planning, fast for heartbeat, cheap for safety.
+ */
+function pickModel(provider: ProviderConfig, taskType: string): ModelConfig | null {
+  const models = provider.models;
+  if (models.length === 0) return null;
+
+  // Map task types to preferred tiers
+  const tierPref: Record<string, string[]> = {
+    agent_turn: ["reasoning", "fast", "cheap"],
+    planning: ["reasoning", "fast", "cheap"],
+    heartbeat_triage: ["fast", "cheap", "reasoning"],
+    safety_check: ["cheap", "fast", "reasoning"],
+    summarization: ["fast", "reasoning", "cheap"],
+  };
+
+  const preferred = tierPref[taskType] ?? ["fast", "reasoning", "cheap"];
+  for (const tier of preferred) {
+    const match = models.find((m) => m.tier === tier);
+    if (match) return match;
+  }
+  return models[0]; // fallback to first available
+}
+
+/**
+ * Call an OpenAI-compatible /v1/chat/completions endpoint directly.
+ * All free-tier providers (Cerebras, SambaNova, Together, HuggingFace, Groq)
+ * use this standard format.
+ */
+async function callProviderDirect(
+  provider: ProviderConfig,
+  model: ModelConfig,
+  messages: any[],
+  tools: any[] | undefined,
+  maxTokens: number,
+): Promise<InferenceResult> {
+  const apiKey = process.env[provider.apiKeyEnvVar] || "";
+  const url = `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`;
+
+  const body: Record<string, unknown> = {
+    model: model.id,
+    messages,
+    max_tokens: maxTokens,
+    stream: false,
+  };
+
+  if (tools && tools.length > 0) {
+    body.tools = tools;
+    body.tool_choice = "auto";
+  }
+
+  const startMs = Date.now();
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(
+      `Inference error (${provider.id}): ${response.status}: ${errorText}`,
+    );
+  }
+
+  const json = await response.json() as any;
+  const latencyMs = Date.now() - startMs;
+
+  const choice = json.choices?.[0];
+  const content = choice?.message?.content ?? "";
+  const toolCalls = choice?.message?.tool_calls?.map((tc: any) => ({
+    id: tc.id,
+    type: tc.type,
+    function: {
+      name: tc.function?.name,
+      arguments: tc.function?.arguments,
+    },
+  }));
+  const finishReason = choice?.finish_reason ?? "stop";
+  const usage = json.usage ?? {};
+
+  return {
+    content,
+    model: model.id,
+    provider: provider.id as any,
+    inputTokens: usage.prompt_tokens ?? 0,
+    outputTokens: usage.completion_tokens ?? 0,
+    costCents: 0, // free tier
+    latencyMs,
+    finishReason,
+    toolCalls: toolCalls?.length ? toolCalls : undefined,
+  };
 }
 
 export class CascadeController {
@@ -96,12 +207,67 @@ export class CascadeController {
   }
 
   /**
+   * Try each provider in a pool directly via OpenAI-compatible API.
+   * Returns the first successful result or throws the last error.
+   */
+  private async tryPoolDirect(
+    pool: CascadePool,
+    request: InferenceRequest,
+  ): Promise<InferenceResult> {
+    const providers = getProvidersForPool(pool);
+    let lastError: Error | null = null;
+
+    for (const provider of providers) {
+      // Check if API key is available for this provider
+      const apiKey = process.env[provider.apiKeyEnvVar];
+      if (!apiKey) {
+        logger.debug(`Cascade: skipping ${provider.id} (no API key: ${provider.apiKeyEnvVar})`);
+        continue;
+      }
+
+      const model = pickModel(provider, request.taskType);
+      if (!model) {
+        logger.debug(`Cascade: skipping ${provider.id} (no suitable model)`);
+        continue;
+      }
+
+      try {
+        logger.info(`Cascade: trying ${provider.id} (${model.id})`);
+        const result = await callProviderDirect(
+          provider,
+          model,
+          request.messages,
+          request.tools,
+          4096,
+        );
+        logger.info(`Cascade: ${provider.id} succeeded (${result.inputTokens}+${result.outputTokens} tokens, ${result.latencyMs}ms)`);
+        return result;
+      } catch (error: any) {
+        const errMsg = error?.message ?? String(error);
+        const isRetryable = /429|413|500|503|rate.limit|timeout/i.test(errMsg);
+        logger.warn(`Cascade: ${provider.id} failed: ${errMsg.slice(0, 200)}`);
+        lastError = error;
+
+        if (!isRetryable) {
+          // Non-retryable (401/403) — skip this provider, try next
+          continue;
+        }
+        // Retryable — try next provider in this pool
+        continue;
+      }
+    }
+
+    throw lastError ?? new Error(`No providers available in ${pool} pool`);
+  }
+
+  /**
    * Main entry point. Replaces direct inferenceRouter.route() calls.
    *
    * 1. Select starting pool based on tier + profitability
-   * 2. Try inference with that pool's providers
-   * 3. On pool exhaustion -> cascade to next pool
-   * 4. Throw CascadeExhaustedError if all pools fail
+   * 2. For PAID pool: delegate to InferenceRouter (handles Anthropic native API etc.)
+   * 3. For FREE_CLOUD/LOCAL: iterate through each provider directly
+   * 4. On pool exhaustion -> cascade to next pool
+   * 5. Throw CascadeExhaustedError if all pools fail
    */
   async infer(
     request: InferenceRequest,
@@ -120,17 +286,29 @@ export class CascadeController {
 
       try {
         logger.info(`Cascade: trying ${currentPool} pool (${poolProviders.map((p) => p.id).join(", ")})`);
-        const result = await router.route(request, inferenceChat);
-        logger.info(`Cascade: ${currentPool} pool succeeded (model: ${result.model})`);
+
+        let result: InferenceResult;
+
+        if (currentPool === "paid") {
+          // PAID pool: use the InferenceRouter which understands Anthropic native API,
+          // OpenAI, and Groq paid tier with all their special handling
+          result = await router.route(request, inferenceChat);
+        } else {
+          // FREE_CLOUD and LOCAL pools: iterate through providers directly
+          // using OpenAI-compatible /v1/chat/completions calls
+          result = await this.tryPoolDirect(currentPool, request);
+        }
+
+        logger.info(`Cascade: ${currentPool} pool succeeded (model: ${result.model}, provider: ${result.provider})`);
         return result;
       } catch (error: any) {
         const errMsg = error?.message ?? String(error);
-        const isRetryable = /429|413|500|503|rate.limit|timeout/i.test(errMsg);
+        const isRetryable = /429|413|500|503|rate.limit|timeout|exhausted|No providers/i.test(errMsg);
 
         if (isRetryable) {
           const next = getNextPool(currentPool);
           if (next) {
-            logger.warn(`Cascade: ${currentPool} pool exhausted (${errMsg}), falling back to ${next}`);
+            logger.warn(`Cascade: ${currentPool} pool exhausted (${errMsg.slice(0, 200)}), falling back to ${next}`);
             currentPool = next;
             continue;
           }

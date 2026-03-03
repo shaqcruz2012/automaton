@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CascadeController, CascadeExhaustedError } from "../../inference/cascade-controller.js";
 import { POOL_CASCADE_ORDER, getProvidersForPool, getNextPool } from "../../inference/pools.js";
 import type { InferenceResult, SurvivalTier } from "../../types.js";
@@ -40,6 +40,50 @@ describe("Cascade failover integration", () => {
     };
   }
 
+  /**
+   * Create a mock fetch that returns OpenAI-compatible JSON.
+   * Used to simulate free_cloud direct provider calls.
+   */
+  function mockFetchSuccess(content = "direct provider success") {
+    return vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{
+          message: { content, tool_calls: null },
+          finish_reason: "stop",
+        }],
+        usage: { prompt_tokens: 50, completion_tokens: 25 },
+      }),
+    });
+  }
+
+  /** Set env vars so tryPoolDirect doesn't skip free_cloud providers */
+  const savedEnv: Record<string, string | undefined> = {};
+  const FREE_CLOUD_KEYS = [
+    "GROQ_API_KEY", "CEREBRAS_API_KEY", "SAMBANOVA_API_KEY",
+    "TOGETHER_API_KEY", "HF_API_KEY",
+  ];
+
+  beforeEach(() => {
+    for (const key of FREE_CLOUD_KEYS) {
+      savedEnv[key] = process.env[key];
+      process.env[key] = "test-key-" + key.toLowerCase();
+    }
+  });
+
+  afterEach(() => {
+    for (const key of FREE_CLOUD_KEYS) {
+      if (savedEnv[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = savedEnv[key];
+      }
+    }
+    vi.restoreAllMocks();
+  });
+
+  // === Pool selection tests (no fetch needed) ===
+
   it("uses paid pool when profitable at normal tier", () => {
     const controller = new CascadeController(mockDb(2000, 500));
     expect(controller.selectPool("normal")).toBe("paid");
@@ -72,9 +116,7 @@ describe("Cascade failover integration", () => {
 
   it("caches P&L for 5 minutes", () => {
     const controller = new CascadeController(mockDb(1000, 500));
-    // First call
     expect(controller.selectPool("normal")).toBe("paid");
-    // Second call should use cache (same result)
     expect(controller.selectPool("normal")).toBe("paid");
   });
 
@@ -86,7 +128,6 @@ describe("Cascade failover integration", () => {
       }),
     } as any;
     const controller = new CascadeController(db);
-    // Should default to free_cloud (netCents = 0, not > 0)
     expect(controller.selectPool("normal")).toBe("free_cloud");
   });
 
@@ -94,6 +135,8 @@ describe("Cascade failover integration", () => {
     const controller = new CascadeController(mockDb(1000, 1000));
     expect(controller.selectPool("normal")).toBe("free_cloud");
   });
+
+  // === Pool structure tests ===
 
   it("pool cascade order is paid → free_cloud → local", () => {
     expect(POOL_CASCADE_ORDER).toEqual(["paid", "free_cloud", "local"]);
@@ -121,7 +164,10 @@ describe("Cascade failover integration", () => {
     expect(ids).toContain("huggingface");
   });
 
-  it("successful inference returns result directly", async () => {
+  // === Inference flow tests ===
+
+  it("successful paid pool inference returns result directly via router", async () => {
+    // Profitable → paid pool → delegates to router
     const controller = new CascadeController(mockDb(1000, 500));
     const mockRouter = { route: async () => successResult } as any;
 
@@ -129,23 +175,44 @@ describe("Cascade failover integration", () => {
     expect(result.content).toBe("cascade success");
   });
 
-  it("cascades to next pool on retryable error", async () => {
-    const controller = new CascadeController(mockDb(1000, 500));
-    let callCount = 0;
+  it("successful free_cloud inference uses direct provider calls (not router)", async () => {
+    // Unprofitable → free_cloud pool → direct fetch to providers
+    const fetchMock = mockFetchSuccess("direct call ok");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new CascadeController(mockDb(500, 2000));
     const mockRouter = {
-      route: async () => {
-        callCount++;
-        if (callCount === 1) throw new Error("429 rate limited");
-        return successResult;
-      },
+      route: vi.fn().mockRejectedValue(new Error("should not be called")),
     } as any;
 
     const result = await controller.infer(makeRequest(), mockRouter, async () => ({}));
-    expect(result.content).toBe("cascade success");
-    expect(callCount).toBe(2); // First pool failed, second succeeded
+    expect(result.content).toBe("direct call ok");
+    // Router should NOT have been called — free_cloud uses direct calls
+    expect(mockRouter.route).not.toHaveBeenCalled();
+    // fetch should have been called at least once
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("cascades from paid to free_cloud on retryable error", async () => {
+    // Profitable → paid pool (router fails with 429) → cascade to free_cloud (direct fetch)
+    const fetchMock = mockFetchSuccess("fallback success");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new CascadeController(mockDb(1000, 500));
+    const mockRouter = {
+      route: vi.fn().mockRejectedValue(new Error("429 rate limited")),
+    } as any;
+
+    const result = await controller.infer(makeRequest(), mockRouter, async () => ({}));
+    expect(result.content).toBe("fallback success");
+    // Router was called once (paid pool)
+    expect(mockRouter.route).toHaveBeenCalledTimes(1);
+    // Direct fetch was called (free_cloud pool)
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   it("throws on non-retryable error without cascading", async () => {
+    // Profitable → paid pool → 401 is not retryable → throws immediately
     const controller = new CascadeController(mockDb(1000, 500));
     const mockRouter = {
       route: async () => { throw new Error("401 Unauthorized"); },
@@ -156,11 +223,51 @@ describe("Cascade failover integration", () => {
     ).rejects.toThrow("401 Unauthorized");
   });
 
+  it("throws CascadeExhaustedError when all pools fail", async () => {
+    // Profitable → paid (router 429) → free_cloud (all fetch 429) → local (empty) → exhausted
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: async () => "rate limited",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new CascadeController(mockDb(1000, 500));
+    const mockRouter = {
+      route: vi.fn().mockRejectedValue(new Error("429 rate limited")),
+    } as any;
+
+    await expect(
+      controller.infer(makeRequest(), mockRouter, async () => ({})),
+    ).rejects.toThrow();
+  });
+
+  it("free_cloud pool tries multiple providers before failing", async () => {
+    // All direct calls fail with 429 → should call fetch multiple times
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: async () => "rate limited",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new CascadeController(mockDb(500, 2000)); // unprofitable → free_cloud
+    const mockRouter = { route: vi.fn() } as any;
+
+    await expect(
+      controller.infer(makeRequest(), mockRouter, async () => ({})),
+    ).rejects.toThrow();
+
+    // Should have tried multiple free_cloud providers
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // Router should NOT have been called
+    expect(mockRouter.route).not.toHaveBeenCalled();
+  });
+
   it("clearCache resets the P&L cache", () => {
     const controller = new CascadeController(mockDb(1000, 500));
     expect(controller.selectPool("normal")).toBe("paid");
     controller.clearCache();
-    // After clearing, it will recompute (same mock, same result)
     expect(controller.selectPool("normal")).toBe("paid");
   });
 });
