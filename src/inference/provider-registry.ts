@@ -311,7 +311,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     pool: "free_cloud",
     models: [
       {
-        id: "qwen-3-235b-instruct",
+        id: "qwen-3-235b-a22b-instruct-2507",
         tier: "reasoning" as ModelTier,
         contextWindow: 131072,
         maxOutputTokens: 8192,
@@ -322,7 +322,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
         supportsStreaming: true,
       },
       {
-        id: "llama-4-scout-17b-16e-instruct",
+        id: "llama3.1-8b",
         tier: "fast" as ModelTier,
         contextWindow: 131072,
         maxOutputTokens: 8192,

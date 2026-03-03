@@ -152,6 +152,10 @@ export async function runAgentLoop(
       if (config.conwayApiKey && !process.env.CONWAY_API_KEY) {
         process.env.CONWAY_API_KEY = config.conwayApiKey;
       }
+      // Groq API key (used by both paid groq and groq-free in cascade)
+      if (config.groqApiKey && !process.env.GROQ_API_KEY) {
+        process.env.GROQ_API_KEY = config.groqApiKey;
+      }
       // Cascade inference provider keys (free_cloud pool)
       if (config.cerebrasApiKey && !process.env.CEREBRAS_API_KEY) {
         process.env.CEREBRAS_API_KEY = config.cerebrasApiKey;
