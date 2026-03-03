@@ -60,15 +60,15 @@ const DEFAULT_EMERGENCY_STOP_CREDITS = 100;
 const DEFAULT_TIER_DEFAULTS: Record<ModelTier, TierDefault> = {
   reasoning: {
     preferredProvider: "anthropic",
-    fallbackOrder: ["openai", "groq", "groq-free", "cerebras", "sambanova", "together", "huggingface", "local"],
+    fallbackOrder: ["openai", "groq", "groq-free", "cerebras", "sambanova", "together", "huggingface", "mistral", "local"],
   },
   fast: {
     preferredProvider: "anthropic",
-    fallbackOrder: ["groq", "groq-free", "cerebras", "sambanova", "openai", "together", "huggingface", "local"],
+    fallbackOrder: ["groq", "groq-free", "cerebras", "sambanova", "openai", "together", "huggingface", "mistral", "local"],
   },
   cheap: {
     preferredProvider: "anthropic",
-    fallbackOrder: ["groq", "groq-free", "cerebras", "sambanova", "together", "huggingface", "local", "openai"],
+    fallbackOrder: ["groq", "groq-free", "cerebras", "sambanova", "together", "huggingface", "mistral", "local", "openai"],
   },
 };
 
@@ -439,6 +439,52 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     maxRequestsPerMinute: 30,
     maxTokensPerMinute: 100000,
     priority: 8,
+    enabled: true,
+  },
+  {
+    id: "mistral",
+    name: "Mistral AI (Free Tier)",
+    baseUrl: "https://api.mistral.ai/v1",
+    apiKeyEnvVar: "MISTRAL_API_KEY",
+    pool: "free_cloud",
+    models: [
+      {
+        id: "magistral-small-latest",
+        tier: "reasoning" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "mistral-small-latest",
+        tier: "fast" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "mistral-small-latest",
+        tier: "cheap" as ModelTier,
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0,
+        costPerOutputToken: 0,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+    ],
+    maxRequestsPerMinute: 2,
+    maxTokensPerMinute: 500000,
+    priority: 9,
     enabled: true,
   },
   {

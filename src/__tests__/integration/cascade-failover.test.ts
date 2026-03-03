@@ -61,7 +61,7 @@ describe("Cascade failover integration", () => {
   const savedEnv: Record<string, string | undefined> = {};
   const FREE_CLOUD_KEYS = [
     "GROQ_API_KEY", "CEREBRAS_API_KEY", "SAMBANOVA_API_KEY",
-    "TOGETHER_API_KEY", "HF_API_KEY",
+    "TOGETHER_API_KEY", "HF_API_KEY", "MISTRAL_API_KEY",
   ];
 
   beforeEach(() => {
@@ -155,13 +155,14 @@ describe("Cascade failover integration", () => {
     expect(ids).toContain("openai");
   });
 
-  it("free_cloud pool contains groq-free, cerebras, sambanova, together, huggingface", () => {
+  it("free_cloud pool contains groq-free, cerebras, sambanova, together, huggingface, mistral", () => {
     const ids = getProvidersForPool("free_cloud").map((p) => p.id);
     expect(ids).toContain("groq-free");
     expect(ids).toContain("cerebras");
     expect(ids).toContain("sambanova");
     expect(ids).toContain("together");
     expect(ids).toContain("huggingface");
+    expect(ids).toContain("mistral");
   });
 
   // === Inference flow tests ===

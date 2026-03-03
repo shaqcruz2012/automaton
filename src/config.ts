@@ -40,6 +40,7 @@ export function loadConfig(): AutomatonConfig | null {
     const sambanovaApiKey = raw.sambanovaApiKey || process.env.SAMBANOVA_API_KEY;
     const togetherApiKey = raw.togetherApiKey || process.env.TOGETHER_API_KEY;
     const hfApiKey = raw.hfApiKey || process.env.HF_API_KEY;
+    const mistralApiKey = raw.mistralApiKey || process.env.MISTRAL_API_KEY;
 
     // Deep-merge treasury policy with defaults
     const treasuryPolicy: TreasuryPolicy = {
@@ -76,6 +77,7 @@ export function loadConfig(): AutomatonConfig | null {
       sambanovaApiKey,
       togetherApiKey,
       hfApiKey,
+      mistralApiKey,
       treasuryPolicy,
       modelStrategy,
       soulConfig,
@@ -136,6 +138,7 @@ export function createConfig(params: {
   sambanovaApiKey?: string;
   togetherApiKey?: string;
   hfApiKey?: string;
+  mistralApiKey?: string;
   parentAddress?: Address;
   treasuryPolicy?: TreasuryPolicy;
 }): AutomatonConfig {
@@ -156,6 +159,7 @@ export function createConfig(params: {
     sambanovaApiKey: params.sambanovaApiKey,
     togetherApiKey: params.togetherApiKey,
     hfApiKey: params.hfApiKey,
+    mistralApiKey: params.mistralApiKey,
     inferenceModel: DEFAULT_CONFIG.inferenceModel || "claude-haiku-4-5-20251001",
     maxTokensPerTurn: DEFAULT_CONFIG.maxTokensPerTurn || 4096,
     heartbeatConfigPath:

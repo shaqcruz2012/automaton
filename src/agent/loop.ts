@@ -165,6 +165,9 @@ export async function runAgentLoop(
       if (config.hfApiKey && !process.env.HF_API_KEY) {
         process.env.HF_API_KEY = config.hfApiKey;
       }
+      if (config.mistralApiKey && !process.env.MISTRAL_API_KEY) {
+        process.env.MISTRAL_API_KEY = config.mistralApiKey;
+      }
 
       const providersPath = path.join(
         process.env.HOME || process.env.USERPROFILE || process.cwd(),

@@ -279,6 +279,35 @@ export const STATIC_MODEL_BASELINE: Omit<ModelEntry, "lastSeen" | "createdAt" | 
     parameterStyle: "max_tokens",
     enabled: true,
   },
+  // ── Mistral (free tier — 2 req/min) ─────────────────────────────
+  {
+    modelId: "magistral-small-latest",
+    provider: "mistral",
+    displayName: "Magistral Small (Mistral Free)",
+    tierMinimum: "critical",
+    costPer1kInput: 0,
+    costPer1kOutput: 0,
+    maxTokens: 8192,
+    contextWindow: 131072,
+    supportsTools: true,
+    supportsVision: false,
+    parameterStyle: "max_tokens",
+    enabled: true,
+  },
+  {
+    modelId: "mistral-small-latest",
+    provider: "mistral",
+    displayName: "Mistral Small (Mistral Free)",
+    tierMinimum: "critical",
+    costPer1kInput: 0,
+    costPer1kOutput: 0,
+    maxTokens: 8192,
+    contextWindow: 131072,
+    supportsTools: true,
+    supportsVision: false,
+    parameterStyle: "max_tokens",
+    enabled: true,
+  },
 ];
 
 // === Default Routing Matrix ===

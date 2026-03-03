@@ -40,6 +40,15 @@ describe("Provider Registry — cascade pools", () => {
     expect(hf!.pool).toBe("free_cloud");
   });
 
+  it("has Mistral in the default providers", () => {
+    const registry = new ProviderRegistry();
+    const providers = registry.getProviders();
+    const mistral = providers.find((p) => p.id === "mistral");
+    expect(mistral).toBeDefined();
+    expect(mistral!.enabled).toBe(true);
+    expect(mistral!.pool).toBe("free_cloud");
+  });
+
   it("has Together enabled with free_cloud pool", () => {
     const registry = new ProviderRegistry();
     const providers = registry.getProviders();
@@ -92,6 +101,7 @@ describe("Pool definitions", () => {
     expect(ids).toContain("sambanova");
     expect(ids).toContain("together");
     expect(ids).toContain("huggingface");
+    expect(ids).toContain("mistral");
     expect(ids).not.toContain("anthropic");
   });
 
