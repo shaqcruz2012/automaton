@@ -25,6 +25,9 @@ export type { TierConfig } from "./types.js";
 // Re-export handlers
 export { handleSummarizeBasic, handleBriefStandard, handleBriefPremium };
 
+// Re-export URL summarizer earning skill
+export { summarizeUrlForClient, SKILL_METADATA as URL_SUMMARIZER_METADATA } from "./url-summarizer.js";
+
 // Re-export payment gate functions
 export { verifyPayment, recordRevenue, recordExpense } from "./payment-gate.js";
 

@@ -17,6 +17,12 @@
       "description": "Deep-dive analysis with competitive landscape and strategic recommendations",
       "max_input_tokens": 64000,
       "model": "gpt-4o"
+    },
+    "url-summarizer": {
+      "price_usd": 0.01,
+      "description": "AI-powered URL summarization with structured output (title, summary, key points)",
+      "max_input_tokens": 12000,
+      "model": "mistral-small-latest"
     }
   }
 }

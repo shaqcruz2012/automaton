@@ -622,6 +622,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       { name: "Text Analysis API",   file: "services/text-analysis.js",   port: 9000, health: "/health" },
       { name: "Data Processing API", file: "services/data-processing.js", port: 9001, health: "/health" },
       { name: "TrustCheck API",      file: "trustcheck-complete.js",      port: 9002, health: "/health" },
+      { name: "URL Summarizer Pro",  file: "services/url-summarizer.js",  port: 9003, health: "/health" },
       { name: "Payment Validator",   file: "payment-validator.js",        port: 6000, health: "/status" },
     ];
 
