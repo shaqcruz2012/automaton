@@ -387,7 +387,7 @@ export async function runAgentLoop(
 
   // ─── The Loop ──────────────────────────────────────────────
 
-  const MAX_IDLE_TURNS = 10; // Force sleep after N turns with no real work
+  const MAX_IDLE_TURNS = 3; // Force sleep after N turns with no real work
   let idleTurnCount = 0;
 
   const maxCycleTurns = config.maxTurnsPerCycle ?? 25;
@@ -944,8 +944,8 @@ export async function runAgentLoop(
       if (!currentInput && !didMutate) {
         idleTurnCount++;
         if (idleTurnCount >= MAX_IDLE_TURNS) {
-          log(config, `[IDLE] ${idleTurnCount} consecutive idle turns with no work. Entering sleep.`);
-          db.setKV("sleep_until", new Date(Date.now() + 60_000).toISOString());
+          log(config, `[IDLE] ${idleTurnCount} consecutive idle turns with no work. Sleeping 5min.`);
+          db.setKV("sleep_until", new Date(Date.now() + 300_000).toISOString());
           db.setAgentState("sleeping");
           onStateChange?.("sleeping");
           running = false;
@@ -975,11 +975,11 @@ export async function runAgentLoop(
         response.finishReason === "stop"
       ) {
         // Agent produced text without tool calls.
-        // This is a natural pause point -- no work queued, sleep briefly.
-        log(config, "[IDLE] No pending inputs. Entering brief sleep.");
+        // This is a natural pause point -- no work queued, sleep longer.
+        log(config, "[IDLE] No pending inputs. Sleeping 5min.");
         db.setKV(
           "sleep_until",
-          new Date(Date.now() + 60_000).toISOString(),
+          new Date(Date.now() + 300_000).toISOString(),
         );
         db.setAgentState("sleeping");
         onStateChange?.("sleeping");
