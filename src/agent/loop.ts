@@ -481,14 +481,28 @@ export async function runAgentLoop(
       // previous turns, the conversation ends with tool_result blocks and no
       // follow-up user message. Small models see tool results but no directive →
       // either repeat the last tool call or generate empty/confused text.
-      // Fix: inject a directive nudge that tells the agent to analyze results
-      // and proceed to the next action.
+      // Fix: inject a directive nudge that includes a summary of already-completed
+      // actions so the model knows what NOT to repeat.
       if (!pendingInput && allTurns.length > 0) {
         const lastTurn = allTurns[allTurns.length - 1];
         const hasToolResults = lastTurn.toolCalls.length > 0;
         if (hasToolResults) {
+          // Build a compact summary of tool calls already made this session
+          // so the model knows what it already did and doesn't repeat.
+          const completedActions = allTurns
+            .flatMap((t) => t.toolCalls)
+            .map((tc) => {
+              const argStr = JSON.stringify(tc.arguments ?? {});
+              const shortArgs = argStr.length > 60 ? argStr.slice(0, 60) + "..." : argStr;
+              const shortResult = (tc.result ?? "").slice(0, 80);
+              return `- ${tc.name}(${shortArgs}) → ${shortResult}`;
+            });
+          const actionSummary = completedActions.length > 0
+            ? `\nAlready completed this session:\n${completedActions.join("\n")}\n`
+            : "";
+
           pendingInput = {
-            content: "Good. Analyze the tool results above. Proceed to the NEXT pending task. Do NOT repeat the same tool call you just made — use a different tool or act on what you learned.",
+            content: `${actionSummary}\nDo NOT repeat any action listed above. Proceed to the NEXT different task from your worklog. Use a DIFFERENT tool or target.`,
             source: "system",
           };
           log(config, "[NUDGE] Injected continuation directive (no pending input after tool results).");
@@ -791,11 +805,21 @@ export async function runAgentLoop(
 
       // ── Loop Detection ──
       if (turn.toolCalls.length > 0) {
-        // Include first 30 chars of args for exec/write_file so different commands
-        // (curl vs netstat vs tasklist) don't all collapse to "exec,exec,exec"
+        // Normalize tool call patterns for loop detection.
+        // For exec commands: extract the core URL/target to avoid flag
+        // variations like "curl http://..." vs "curl -v http://..." from
+        // appearing as different patterns.
         const currentPattern = turn.toolCalls
           .map((tc) => {
-            if (tc.name === "exec" || tc.name === "write_file") {
+            if (tc.name === "exec") {
+              const cmd = String((tc.arguments as Record<string, unknown>)?.command ?? "");
+              // Extract URL from curl-like commands for consistent matching
+              const urlMatch = cmd.match(/https?:\/\/[^\s'"]+/);
+              if (urlMatch) return `exec:curl:${urlMatch[0]}`;
+              // Fallback: first 30 chars of the command
+              return `exec:${cmd.slice(0, 30)}`;
+            }
+            if (tc.name === "write_file" || tc.name === "read_file") {
               const argSnippet = JSON.stringify(tc.arguments).slice(0, 30);
               return `${tc.name}:${argSnippet}`;
             }
@@ -843,7 +867,7 @@ export async function runAgentLoop(
         ) {
           log(config, `[LOOP] Repetitive pattern detected: ${currentPattern}`);
           pendingInput = {
-            content: `[loop:${currentPattern}] try different approach`,
+            content: `STOP. You are stuck in a loop repeating: ${currentPattern}. This action is DONE — do NOT call it again. Read your WORKLOG.md pending tasks and pick the NEXT uncompleted item. If all items are done, call sleep.`,
             source: "system",
           };
           loopWarningPattern = currentPattern;
