@@ -113,45 +113,110 @@ export async function runPipeline(
   }
 }
 
-/** Fetch a URL and return its HTML content */
+const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_REDIRECTS = 5;
+
+/** Fetch a URL with safe redirect following and body size cap */
 async function fetchUrl(url: string, timeoutMs: number): Promise<string> {
-  const response = await fetch(url, {
-    headers: {
-      "User-Agent": "DatchiBot/1.0 (URL Summarizer; +https://datchi.app)",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.5",
-    },
-    redirect: "follow",
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const signal = AbortSignal.timeout(timeoutMs);
+  let currentUrl = url;
 
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const response = await fetch(currentUrl, {
+      headers: {
+        "User-Agent": "DatchiBot/1.0 (URL Summarizer; +https://datchi.app)",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+      },
+      redirect: "manual",
+      signal,
+    });
+
+    // Handle redirects — re-validate each hop against SSRF blocklist
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) throw new Error("Redirect with no Location header");
+
+      const redirectUrl = new URL(location, currentUrl);
+      if (!["http:", "https:"].includes(redirectUrl.protocol)) {
+        throw new Error("Redirect to non-HTTP protocol blocked");
+      }
+      if (isPrivateHost(redirectUrl.hostname)) {
+        throw new Error("Redirect to private address blocked (SSRF)");
+      }
+
+      currentUrl = redirectUrl.toString();
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    // Check Content-Type before reading body
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/pdf")) {
+      throw new Error("PDF content not supported");
+    }
+    if (contentType && !contentType.includes("text/") && !contentType.includes("application/xhtml")) {
+      throw new Error(`Non-HTML content type: ${contentType.split(";")[0]}`);
+    }
+
+    // Enforce body size limit to prevent OOM
+    const contentLength = response.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
+      throw new Error("Response body too large");
+    }
+
+    // Stream with byte cap for chunked responses
+    const reader = response.body?.getReader();
+    if (!reader) return "";
+
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.length;
+      if (totalBytes > MAX_BODY_BYTES) {
+        reader.cancel();
+        throw new Error("Response body too large");
+      }
+      chunks.push(value);
+    }
+
+    return new TextDecoder().decode(Buffer.concat(chunks));
   }
 
-  const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("application/pdf")) {
-    throw new Error("PDF content not supported");
-  }
-
-  return response.text();
+  throw new Error(`Too many redirects (>${MAX_REDIRECTS})`);
 }
 
 /** Block private/internal IP addresses to prevent SSRF */
 function isPrivateHost(hostname: string): boolean {
+  // Strip brackets from IPv6 addresses (e.g. [::1])
+  const h = hostname.replace(/^\[|\]$/g, "");
+
   const BLOCKED = [
     /^localhost$/i,
     /^127\./,
     /^0\.0\.0\.0$/,
+    /^0\./,                              // 0.0.0.0/8
     /^::1$/,
-    /^\[::1\]$/,
     /^10\./,
     /^172\.(1[6-9]|2\d|3[01])\./,
     /^192\.168\./,
-    /^169\.254\./, // link-local / cloud metadata
-    /^fd[0-9a-f]{2}:/i, // IPv6 ULA
+    /^169\.254\./,                        // link-local / cloud metadata
+    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // RFC 6598 carrier-grade NAT
+    /^fd[0-9a-f]{2}:/i,                  // IPv6 ULA
+    /^fe80:/i,                            // IPv6 link-local
+    /^::ffff:(10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/i, // IPv6-mapped IPv4
+    /\.local$/i,                          // mDNS
+    /\.internal$/i,                       // cloud internal DNS
+    /^metadata\./i,                       // cloud metadata endpoints
   ];
-  return BLOCKED.some((re) => re.test(hostname));
+  return BLOCKED.some((re) => re.test(h));
 }
 
 /** Quick heuristic: does the response look like HTML? */

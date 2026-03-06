@@ -19,7 +19,7 @@ import http from "http";
 import { ulid } from "ulid";
 import { loadConfig, PRICING_TIERS } from "./config.js";
 import { runPipeline } from "./pipeline.js";
-import { createApiKey, lookupApiKey, checkQuota, incrementUsage } from "./api-keys.js";
+import { createApiKey, lookupApiKey, reserveQuota, refundQuota, getQuotaInfo } from "./api-keys.js";
 import type {
   SummarizeRequest,
   ErrorResponse,
@@ -49,19 +49,29 @@ function readBody(req: http.IncomingMessage): Promise<string> {
     let aborted = false;
     const maxSize = 1_000_000; // 1MB max request body
 
+    // Timeout to prevent slowloris attacks
+    const timeout = setTimeout(() => {
+      if (!aborted) {
+        aborted = true;
+        reject(new Error("Request read timeout"));
+        req.destroy();
+      }
+    }, 15_000);
+
     req.on("data", (chunk: Buffer) => {
       if (aborted) return;
       size += chunk.length;
       if (size > maxSize) {
         aborted = true;
+        clearTimeout(timeout);
         reject(new Error("Request body too large"));
         req.destroy();
         return;
       }
       body += chunk;
     });
-    req.on("end", () => { if (!aborted) resolve(body); });
-    req.on("error", (err) => { if (!aborted) reject(err); });
+    req.on("end", () => { clearTimeout(timeout); if (!aborted) resolve(body); });
+    req.on("error", (err) => { clearTimeout(timeout); if (!aborted) reject(err); });
   });
 }
 
@@ -145,9 +155,16 @@ const server = http.createServer(async (req, res) => {
 
   // ── POST /api-keys ──
   if (urlPath === "/api-keys" && method === "POST") {
+    // Require admin secret to prevent free key farming
+    const adminSecret = req.headers["x-admin-secret"] as string | undefined;
+    if (!config.adminSecret || adminSecret !== config.adminSecret) {
+      jsonResponse(res, 403, errorResponse("FORBIDDEN", "Admin secret required to create API keys", requestId));
+      return;
+    }
+
     try {
       const body = await readBody(req);
-      const parsed = body ? JSON.parse(body) : {};
+      const parsed = body.trim() ? JSON.parse(body) : {};
       const tier = typeof parsed.tier === "string" ? parsed.tier : "free";
       const owner = typeof parsed.owner === "string" ? parsed.owner : undefined;
 
@@ -167,7 +184,11 @@ const server = http.createServer(async (req, res) => {
         request_id: requestId,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = err instanceof SyntaxError
+        ? "Request body must be valid JSON"
+        : "Failed to create API key";
+      const detail = err instanceof Error ? err.message : String(err);
+      log("error", "API key creation failed", { request_id: requestId, error: detail });
       jsonResponse(res, 400, errorResponse("INVALID_REQUEST", message, requestId));
     }
     return;
@@ -187,7 +208,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const { quota } = checkQuota(config, apiKey);
+    const quota = getQuotaInfo(config, apiKey);
     jsonResponse(res, 200, { quota, request_id: requestId });
     return;
   }
@@ -207,8 +228,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Check quota
-    const { allowed, quota } = checkQuota(config, apiKey);
+    // Atomically reserve quota slot (pre-increment prevents concurrent bypass)
+    const { allowed, quota } = reserveQuota(config, apiKey);
     if (!allowed) {
       jsonResponse(res, 429, {
         ...errorResponse("QUOTA_EXCEEDED", `Quota exceeded for tier '${quota.tier}'. Upgrade or wait until ${quota.resets_at}.`, requestId),
@@ -225,22 +246,39 @@ const server = http.createServer(async (req, res) => {
       const parsed = body.trim() ? JSON.parse(body) : {};
 
       if (!parsed.url || typeof parsed.url !== "string") {
+        refundQuota(config, apiKey);
         jsonResponse(res, 400, errorResponse("MISSING_URL", "Request body must include 'url' field", requestId));
         return;
       }
 
+      // Whitelist language to prevent prompt injection via language field
+      const ALLOWED_LANGUAGES = new Set([
+        "english", "spanish", "french", "german", "portuguese",
+        "italian", "dutch", "polish", "russian", "chinese",
+        "japanese", "korean", "arabic", "hindi", "turkish",
+        "swedish", "danish", "norwegian", "finnish", "czech",
+      ]);
+      const rawLanguage = typeof parsed.language === "string"
+        ? parsed.language.toLowerCase().trim()
+        : "english";
+      const language = ALLOWED_LANGUAGES.has(rawLanguage)
+        ? parsed.language ?? "English"
+        : "English";
+
       request = {
         url: parsed.url,
         detail_level: parsed.detail_level ?? "medium",
-        language: parsed.language ?? "English",
+        language,
       };
     } catch {
+      refundQuota(config, apiKey);
       jsonResponse(res, 400, errorResponse("INVALID_JSON", "Request body must be valid JSON", requestId));
       return;
     }
 
     // Validate detail_level
     if (!["short", "medium", "long"].includes(request.detail_level ?? "medium")) {
+      refundQuota(config, apiKey);
       jsonResponse(res, 400, errorResponse("INVALID_DETAIL_LEVEL", "detail_level must be 'short', 'medium', or 'long'", requestId));
       return;
     }
@@ -259,14 +297,12 @@ const server = http.createServer(async (req, res) => {
     } catch (pipelineErr) {
       const msg = pipelineErr instanceof Error ? pipelineErr.message : String(pipelineErr);
       log("error", "Unexpected pipeline error", { request_id: requestId, error: msg });
+      refundQuota(config, apiKey);
       jsonResponse(res, 500, errorResponse("INTERNAL_ERROR", "An unexpected error occurred", requestId));
       return;
     }
 
     if (result.ok) {
-      // Increment usage on success
-      incrementUsage(config, apiKey);
-
       log("info", "Summarize success", {
         request_id: requestId,
         word_count: result.data.word_count,
@@ -275,6 +311,9 @@ const server = http.createServer(async (req, res) => {
 
       jsonResponse(res, 200, result.data);
     } else {
+      // Refund quota on pipeline failure — don't charge for failed requests
+      refundQuota(config, apiKey);
+
       log("warn", "Summarize failed", {
         request_id: requestId,
         code: result.code,
@@ -307,6 +346,10 @@ const server = http.createServer(async (req, res) => {
 
 // ── Start ────────────────────────────────────────────────────────────
 
+// Set timeouts to prevent slowloris
+server.headersTimeout = 10_000;
+server.requestTimeout = 60_000;
+
 server.listen(config.port, () => {
   log("info", `URL Summarizer Pro v${config.version} listening on port ${config.port}`);
   log("info", `LLM: ${config.llmModel} via ${config.llmBaseUrl}`);
@@ -317,5 +360,22 @@ server.on("error", (err) => {
   log("error", `Server error: ${err.message}`);
   process.exit(1);
 });
+
+// Graceful shutdown — drain in-flight requests before exiting
+function shutdown(signal: string): void {
+  log("info", `Received ${signal}, shutting down gracefully`);
+  server.close(() => {
+    log("info", "Server closed — all connections drained");
+    process.exit(0);
+  });
+  // Force exit after 30s if connections don't drain
+  setTimeout(() => {
+    log("warn", "Forced shutdown after timeout");
+    process.exit(1);
+  }, 30_000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 export { server };

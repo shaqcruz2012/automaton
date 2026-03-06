@@ -28,6 +28,8 @@ export interface ServiceConfig {
   readonly maxContentChars: number;
   /** Log level */
   readonly logLevel: "debug" | "info" | "warn" | "error";
+  /** Admin secret for API key creation (empty = disabled) */
+  readonly adminSecret: string;
 }
 
 export interface PricingTier {
@@ -56,8 +58,17 @@ export function loadConfig(): ServiceConfig {
     freeTierDailyLimit: intEnv("FREE_TIER_DAILY_LIMIT", 25),
     fetchTimeoutMs: intEnv("FETCH_TIMEOUT_MS", 15_000),
     maxContentChars: intEnv("MAX_CONTENT_CHARS", 50_000),
-    logLevel: strEnv("LOG_LEVEL", "info") as ServiceConfig["logLevel"],
+    logLevel: validateLogLevel(strEnv("LOG_LEVEL", "info")),
+    adminSecret: strEnv("ADMIN_SECRET", ""),
   };
+}
+
+const VALID_LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
+
+function validateLogLevel(raw: string): ServiceConfig["logLevel"] {
+  return (VALID_LOG_LEVELS as readonly string[]).includes(raw.toLowerCase())
+    ? raw.toLowerCase() as ServiceConfig["logLevel"]
+    : "info";
 }
 
 function strEnv(key: string, fallback: string): string {

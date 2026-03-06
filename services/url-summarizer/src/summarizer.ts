@@ -159,8 +159,13 @@ async function callLlm(
   const inputTokens = json.usage?.prompt_tokens ?? 0;
   const outputTokens = json.usage?.completion_tokens ?? 0;
 
+  const normalizedContent = typeof content === "string" ? content : String(content);
+  if (!normalizedContent || normalizedContent.trim().length === 0) {
+    throw new LlmError("LLM_EMPTY_RESPONSE", "LLM returned empty content");
+  }
+
   return {
-    content: typeof content === "string" ? content : String(content),
+    content: normalizedContent,
     tokenEstimate: inputTokens + outputTokens,
   };
 }

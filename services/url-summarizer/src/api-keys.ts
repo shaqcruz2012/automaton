@@ -34,8 +34,15 @@ function getStore(config: ServiceConfig): KeyStore {
         keys.set(record.key, record);
       }
     }
-  } catch {
-    // Start with empty store on any error
+  } catch (err) {
+    // If the file exists but is corrupted, log and refuse to start with empty store
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: "error",
+      module: "url-summarizer.api-keys",
+      message: `Failed to load API keys from ${keysPath}: ${message}`,
+    }));
   }
 
   store = { keys, usage };
@@ -84,8 +91,12 @@ export function lookupApiKey(
   return record;
 }
 
-/** Check and increment quota for an API key. Returns quota info. */
-export function checkQuota(
+/**
+ * Atomically check quota and reserve a slot (pre-increment).
+ * This prevents concurrent requests from bypassing the quota limit.
+ * Call refundQuota() if the request fails after reservation.
+ */
+export function reserveQuota(
   config: ServiceConfig,
   apiKey: string,
 ): { allowed: boolean; quota: QuotaInfo } {
@@ -137,41 +148,99 @@ export function checkQuota(
       period_start: now.toISOString(),
       period_type: periodType,
     };
+  }
+
+  const allowed = usage.count < limit;
+
+  // Atomically pre-increment to reserve the slot
+  if (allowed) {
+    s.usage.set(apiKey, { ...usage, count: usage.count + 1 });
+  } else {
     s.usage.set(apiKey, usage);
   }
 
-  const remaining = Math.max(0, limit - usage.count);
-  const allowed = usage.count < limit;
-
-  // Calculate reset time (UTC)
-  const resetDate = new Date(usage.period_start);
+  // Calculate reset time (UTC) — use year/month components to avoid month-end overflow
+  const periodStart = new Date(usage.period_start);
+  let resetDate: Date;
   if (isFree) {
+    resetDate = new Date(usage.period_start);
     resetDate.setUTCDate(resetDate.getUTCDate() + 1);
     resetDate.setUTCHours(0, 0, 0, 0);
   } else {
-    resetDate.setUTCMonth(resetDate.getUTCMonth() + 1);
-    resetDate.setUTCDate(1);
-    resetDate.setUTCHours(0, 0, 0, 0);
+    const resetYear = periodStart.getUTCMonth() === 11
+      ? periodStart.getUTCFullYear() + 1
+      : periodStart.getUTCFullYear();
+    const resetMonth = (periodStart.getUTCMonth() + 1) % 12;
+    resetDate = new Date(Date.UTC(resetYear, resetMonth, 1, 0, 0, 0, 0));
   }
 
   return {
     allowed,
     quota: {
       tier: record.tier,
-      used: usage.count,
+      used: allowed ? usage.count + 1 : usage.count,
       limit,
-      remaining: allowed ? remaining : 0,
+      remaining: allowed ? Math.max(0, limit - usage.count - 1) : 0,
       resets_at: resetDate.toISOString(),
     },
   };
 }
 
-/** Increment usage counter after a successful request (immutable replace) */
-export function incrementUsage(config: ServiceConfig, apiKey: string): void {
+/** Read-only quota check without incrementing (for GET /quota endpoint) */
+export function getQuotaInfo(
+  config: ServiceConfig,
+  apiKey: string,
+): QuotaInfo {
+  const s = getStore(config);
+  const record = s.keys.get(apiKey);
+
+  if (!record || !record.enabled) {
+    return { tier: "unknown", used: 0, limit: 0, remaining: 0, resets_at: new Date().toISOString() };
+  }
+
+  const tier = PRICING_TIERS.find((t) => t.name === record.tier);
+  const isFree = record.tier === "free";
+  const limit = isFree ? config.freeTierDailyLimit : (tier?.monthlyLimit ?? 0);
+
+  let usage = s.usage.get(apiKey);
+  const now = new Date();
+
+  if (usage) {
+    const periodStart = new Date(usage.period_start);
+    const nowDay = now.toISOString().slice(0, 10);
+    const startDay = periodStart.toISOString().slice(0, 10);
+    const expired = isFree
+      ? nowDay !== startDay
+      : now.getUTCMonth() !== periodStart.getUTCMonth() || now.getUTCFullYear() !== periodStart.getUTCFullYear();
+    if (expired) usage = undefined;
+  }
+
+  const used = usage?.count ?? 0;
+  const remaining = Math.max(0, limit - used);
+
+  const periodStartDate = usage ? new Date(usage.period_start) : now;
+  let resetDate: Date;
+  if (isFree) {
+    resetDate = new Date(periodStartDate);
+    resetDate.setUTCDate(resetDate.getUTCDate() + 1);
+    resetDate.setUTCHours(0, 0, 0, 0);
+  } else {
+    const resetYear = periodStartDate.getUTCMonth() === 11
+      ? periodStartDate.getUTCFullYear() + 1
+      : periodStartDate.getUTCFullYear();
+    const resetMonth = (periodStartDate.getUTCMonth() + 1) % 12;
+    resetDate = new Date(Date.UTC(resetYear, resetMonth, 1, 0, 0, 0, 0));
+  }
+
+  return { tier: record.tier, used, limit, remaining, resets_at: resetDate.toISOString() };
+}
+
+/** Refund a reserved quota slot on request failure */
+export function refundQuota(config: ServiceConfig, apiKey: string): void {
   const s = getStore(config);
   const usage = s.usage.get(apiKey);
-  if (usage) {
-    s.usage.set(apiKey, { ...usage, count: usage.count + 1 });
+  if (usage && usage.count > 0) {
+    s.usage.set(apiKey, { ...usage, count: usage.count - 1 });
   }
 }
 
@@ -187,7 +256,10 @@ function persistKeys(config: ServiceConfig): void {
   }
 
   const records = Array.from(s.keys.values());
-  fs.writeFileSync(keysPath, JSON.stringify(records, null, 2), "utf-8");
+  // Atomic write: write to temp file then rename to prevent corruption on crash
+  const tmpPath = keysPath + ".tmp";
+  fs.writeFileSync(tmpPath, JSON.stringify(records, null, 2), "utf-8");
+  fs.renameSync(tmpPath, keysPath);
 }
 
 /** Reset the in-memory store (for testing) */
