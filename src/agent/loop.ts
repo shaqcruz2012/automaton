@@ -502,20 +502,27 @@ export async function runAgentLoop(
       const recentTurns = trimContext(
         meaningfulTurns.length > 0 ? meaningfulTurns : allTurns.slice(-2),
       );
+      // Early task type detection — used to skip heavy context for triage turns.
+      // Triage turns (wakeup/orientation) don't need memory retrieval, saving ~2-5K tokens.
+      const earlyTaskType = detectTaskType(pendingInput, recentTurns);
+
+      // Pre-filter tools by phase/tier so the system prompt only lists tools
+      // the LLM will actually receive as callable definitions. This prevents the
+      // LLM from seeing "you have 57 tools" in the prompt while only receiving 15
+      // tool definitions, which caused it to say "unable to access tools".
+      const survivalTierForPrompt = getSurvivalTier(financial.creditsCents);
+      const promptTools = filterToolsByPhase(tools, earlyTaskType, survivalTierForPrompt);
+
       const systemPrompt = buildSystemPrompt({
         identity,
         config,
         financial,
         state: db.getAgentState(),
         db,
-        tools,
+        tools: promptTools,
         skills,
         isFirstRun,
       });
-
-      // Early task type detection — used to skip heavy context for triage turns.
-      // Triage turns (wakeup/orientation) don't need memory retrieval, saving ~2-5K tokens.
-      const earlyTaskType = detectTaskType(pendingInput, recentTurns);
 
       // Phase 2.2: Pre-turn memory retrieval (skip for triage to reduce input tokens)
       let memoryBlock: string | undefined;
@@ -594,18 +601,14 @@ export async function runAgentLoop(
       }
 
       // ── Inference Call (via router when available) ──
-      const survivalTier = getSurvivalTier(financial.creditsCents);
-
-      // Fix 7: Reuse early task type detection for model routing.
-      // This was already computed before memory retrieval to decide whether to skip it.
+      // Reuse survival tier and task type already computed for prompt building.
+      const survivalTier = survivalTierForPrompt;
       const detectedTaskType = earlyTaskType;
       log(config, `[THINK] Routing inference (tier: ${survivalTier}, task: ${detectedTaskType}, model: ${inference.getDefaultModel()})...`);
 
-      // Fix 4: Dynamic tool selection — filter tools based on phase and tier
-      // to reduce token overhead. 57 tool definitions × ~100 tokens each ≈ 5,700
-      // tokens per turn. Phase-based filtering cuts this by 40-60%.
-      const filteredTools = filterToolsByPhase(tools, detectedTaskType, survivalTier);
-      const inferenceTools = toolsToInferenceFormat(filteredTools);
+      // Reuse the tools already filtered for the system prompt — they must match
+      // the tool definitions sent to the LLM to avoid "unable to access tools".
+      const inferenceTools = toolsToInferenceFormat(promptTools);
       const routerResult = await cascadeController.infer(
         {
           messages: messages,
@@ -1163,9 +1166,12 @@ function filterToolsByPhase(
     return tools.filter(t => SURVIVAL_TOOLS.has(t.name));
   }
 
-  // For orientation/heartbeat turns, use a smaller status-focused subset
+  // For orientation/heartbeat turns, use a smaller status-focused subset.
+  // Include "skills" so the agent can act on loaded skill instructions
+  // (e.g. list_skills) and "vm" so exec is available for operational tasks
+  // like health-checking deployed services via curl.
   if (taskType === "heartbeat_triage") {
-    const ORIENTATION_CATEGORIES = new Set(["survival", "financial", "memory"]);
+    const ORIENTATION_CATEGORIES = new Set(["survival", "financial", "memory", "skills", "vm"]);
     return tools.filter(t =>
       CORE_TOOLS.has(t.name) ||
       ORIENTATION_CATEGORIES.has(t.category) ||
