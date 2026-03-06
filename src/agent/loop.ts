@@ -479,15 +479,16 @@ export async function runAgentLoop(
       // ── Continuation nudge ──
       // When pendingInput is empty (no new user/inbox/wakeup input) but we have
       // previous turns, the conversation ends with tool_result blocks and no
-      // follow-up user message. Haiku sees tool results but no directive → generates
-      // 3 empty tokens and returns end_turn with content_blocks=0.
-      // Fix: inject a brief nudge so the model always has a clear final directive.
+      // follow-up user message. Small models see tool results but no directive →
+      // either repeat the last tool call or generate empty/confused text.
+      // Fix: inject a directive nudge that tells the agent to analyze results
+      // and proceed to the next action.
       if (!pendingInput && allTurns.length > 0) {
         const lastTurn = allTurns[allTurns.length - 1];
         const hasToolResults = lastTurn.toolCalls.length > 0;
         if (hasToolResults) {
           pendingInput = {
-            content: "▶",
+            content: "Good. Analyze the tool results above. Proceed to the NEXT pending task. Do NOT repeat the same tool call you just made — use a different tool or act on what you learned.",
             source: "system",
           };
           log(config, "[NUDGE] Injected continuation directive (no pending input after tool results).");
