@@ -117,7 +117,13 @@ async function callProviderDirect(
   const latencyMs = Date.now() - startMs;
 
   const choice = json.choices?.[0];
-  const content = choice?.message?.content ?? "";
+  // Normalize content: some providers return an array of content parts
+  const rawContent = choice?.message?.content;
+  const content = typeof rawContent === "string"
+    ? rawContent
+    : Array.isArray(rawContent)
+      ? rawContent.map((p: any) => p.text ?? p.content ?? "").join("")
+      : String(rawContent ?? "");
   const toolCalls = choice?.message?.tool_calls?.map((tc: any) => ({
     id: tc.id,
     type: tc.type,

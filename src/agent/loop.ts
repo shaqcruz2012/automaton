@@ -641,7 +641,7 @@ export async function runAgentLoop(
         state: db.getAgentState(),
         input: currentInput?.content,
         inputSource: currentInput?.source as any,
-        thinking: response.message.content || "",
+        thinking: typeof response.message.content === "string" ? response.message.content : JSON.stringify(response.message.content ?? ""),
         toolCalls: [],
         tokenUsage: response.usage,
         costCents: routerResult.costCents,

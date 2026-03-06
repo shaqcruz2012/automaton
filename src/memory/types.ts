@@ -117,7 +117,7 @@ export function classifyTurn(
   }
 
   // Check thinking for error keywords
-  const thinkingLower = thinking.toLowerCase();
+  const thinkingLower = (typeof thinking === "string" ? thinking : String(thinking ?? "")).toLowerCase();
   if (ERROR_KEYWORDS.some((kw) => thinkingLower.includes(kw)) && toolCalls.length === 0) {
     return "error";
   }
