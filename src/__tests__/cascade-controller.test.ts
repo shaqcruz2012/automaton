@@ -13,34 +13,7 @@ describe("CascadePool type", () => {
 });
 
 describe("Provider Registry — cascade pools", () => {
-  it("has Cerebras in the default providers", () => {
-    const registry = new ProviderRegistry();
-    const providers = registry.getProviders();
-    const cerebras = providers.find((p) => p.id === "cerebras");
-    expect(cerebras).toBeDefined();
-    expect(cerebras!.enabled).toBe(true);
-    expect(cerebras!.pool).toBe("free_cloud");
-  });
-
-  it("has SambaNova in the default providers", () => {
-    const registry = new ProviderRegistry();
-    const providers = registry.getProviders();
-    const samba = providers.find((p) => p.id === "sambanova");
-    expect(samba).toBeDefined();
-    expect(samba!.enabled).toBe(true);
-    expect(samba!.pool).toBe("free_cloud");
-  });
-
-  it("has HuggingFace in the default providers", () => {
-    const registry = new ProviderRegistry();
-    const providers = registry.getProviders();
-    const hf = providers.find((p) => p.id === "huggingface");
-    expect(hf).toBeDefined();
-    expect(hf!.enabled).toBe(true);
-    expect(hf!.pool).toBe("free_cloud");
-  });
-
-  it("has Mistral in the default providers", () => {
+  it("has Mistral in the default providers as free_cloud", () => {
     const registry = new ProviderRegistry();
     const providers = registry.getProviders();
     const mistral = providers.find((p) => p.id === "mistral");
@@ -49,32 +22,24 @@ describe("Provider Registry — cascade pools", () => {
     expect(mistral!.pool).toBe("free_cloud");
   });
 
-  it("has Together enabled with free_cloud pool", () => {
-    const registry = new ProviderRegistry();
-    const providers = registry.getProviders();
-    const together = providers.find((p) => p.id === "together");
-    expect(together).toBeDefined();
-    expect(together!.enabled).toBe(true);
-    expect(together!.pool).toBe("free_cloud");
-  });
-
-  it("splits Groq into paid and free_cloud pools", () => {
-    const registry = new ProviderRegistry();
-    const providers = registry.getProviders();
-    const groqPaid = providers.find((p) => p.id === "groq");
-    const groqFree = providers.find((p) => p.id === "groq-free");
-    expect(groqPaid).toBeDefined();
-    expect(groqPaid!.pool).toBe("paid");
-    expect(groqFree).toBeDefined();
-    expect(groqFree!.pool).toBe("free_cloud");
-  });
-
   it("assigns existing providers to correct pools", () => {
     const registry = new ProviderRegistry();
     const providers = registry.getProviders();
     expect(providers.find((p) => p.id === "anthropic")!.pool).toBe("paid");
     expect(providers.find((p) => p.id === "openai")!.pool).toBe("paid");
+    expect(providers.find((p) => p.id === "groq")!.pool).toBe("paid");
+    expect(providers.find((p) => p.id === "mistral")!.pool).toBe("free_cloud");
     expect(providers.find((p) => p.id === "local")!.pool).toBe("local");
+  });
+
+  it("does not include removed providers", () => {
+    const registry = new ProviderRegistry();
+    const ids = registry.getProviders().map((p) => p.id);
+    expect(ids).not.toContain("groq-free");
+    expect(ids).not.toContain("cerebras");
+    expect(ids).not.toContain("sambanova");
+    expect(ids).not.toContain("together");
+    expect(ids).not.toContain("huggingface");
   });
 });
 
@@ -89,19 +54,15 @@ describe("Pool definitions", () => {
     expect(ids).toContain("groq");
     expect(ids).toContain("anthropic");
     expect(ids).toContain("openai");
-    expect(ids).not.toContain("cerebras");
+    expect(ids).not.toContain("mistral");
     expect(ids).not.toContain("local");
   });
 
-  it("returns free cloud providers for the free_cloud pool", () => {
+  it("returns mistral for the free_cloud pool", () => {
     const providers = getProvidersForPool("free_cloud");
     const ids = providers.map((p) => p.id);
-    expect(ids).toContain("groq-free");
-    expect(ids).toContain("cerebras");
-    expect(ids).toContain("sambanova");
-    expect(ids).toContain("together");
-    expect(ids).toContain("huggingface");
     expect(ids).toContain("mistral");
+    expect(ids).toHaveLength(1);
     expect(ids).not.toContain("anthropic");
   });
 

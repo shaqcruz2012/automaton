@@ -60,8 +60,7 @@ describe("Cascade failover integration", () => {
   /** Set env vars so tryPoolDirect doesn't skip free_cloud providers */
   const savedEnv: Record<string, string | undefined> = {};
   const FREE_CLOUD_KEYS = [
-    "GROQ_API_KEY", "CEREBRAS_API_KEY", "SAMBANOVA_API_KEY",
-    "TOGETHER_API_KEY", "HF_API_KEY", "MISTRAL_API_KEY",
+    "MISTRAL_API_KEY",
   ];
 
   beforeEach(() => {
@@ -155,14 +154,9 @@ describe("Cascade failover integration", () => {
     expect(ids).toContain("openai");
   });
 
-  it("free_cloud pool contains groq-free, cerebras, sambanova, together, huggingface, mistral", () => {
+  it("free_cloud pool contains only mistral", () => {
     const ids = getProvidersForPool("free_cloud").map((p) => p.id);
-    expect(ids).toContain("groq-free");
-    expect(ids).toContain("cerebras");
-    expect(ids).toContain("sambanova");
-    expect(ids).toContain("together");
-    expect(ids).toContain("huggingface");
-    expect(ids).toContain("mistral");
+    expect(ids).toEqual(["mistral"]);
   });
 
   // === Inference flow tests ===
@@ -243,8 +237,8 @@ describe("Cascade failover integration", () => {
     ).rejects.toThrow();
   });
 
-  it("free_cloud pool tries multiple providers before failing", async () => {
-    // All direct calls fail with 429 → should call fetch multiple times
+  it("free_cloud pool tries mistral before failing", async () => {
+    // Mistral call fails with 429 → should call fetch once (only provider in pool)
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 429,
@@ -259,8 +253,8 @@ describe("Cascade failover integration", () => {
       controller.infer(makeRequest(), mockRouter, async () => ({})),
     ).rejects.toThrow();
 
-    // Should have tried multiple free_cloud providers
-    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // Should have tried mistral (the only free_cloud provider)
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1);
     // Router should NOT have been called
     expect(mockRouter.route).not.toHaveBeenCalled();
   });

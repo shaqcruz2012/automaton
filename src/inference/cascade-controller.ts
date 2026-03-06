@@ -16,8 +16,7 @@
  * Anthropic native API, OpenAI, Groq paid).
  *
  * For FREE_CLOUD and LOCAL pools: iterates through each provider directly
- * using OpenAI-compatible /v1/chat/completions calls, since the inference
- * client doesn't know about Cerebras/SambaNova/HuggingFace endpoints.
+ * using OpenAI-compatible /v1/chat/completions calls (Mistral free, Ollama).
  */
 
 import type BetterSqlite3 from "better-sqlite3";
@@ -71,8 +70,7 @@ function pickModel(provider: ProviderConfig, taskType: string): ModelConfig | nu
 
 /**
  * Call an OpenAI-compatible /v1/chat/completions endpoint directly.
- * All free-tier providers (Cerebras, SambaNova, Together, HuggingFace, Groq)
- * use this standard format.
+ * Used for free-tier providers (Mistral) and local (Ollama).
  */
 async function callProviderDirect(
   provider: ProviderConfig,

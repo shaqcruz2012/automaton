@@ -158,10 +158,10 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
       turn.state,
       turn.input ?? null,
       turn.inputSource ?? null,
-      turn.thinking,
-      JSON.stringify(turn.toolCalls),
-      JSON.stringify(turn.tokenUsage),
-      turn.costCents,
+      turn.thinking != null ? String(turn.thinking) : null,
+      JSON.stringify(turn.toolCalls ?? []),
+      JSON.stringify(turn.tokenUsage ?? {}),
+      typeof turn.costCents === "number" ? turn.costCents : 0,
     );
   };
 
@@ -201,9 +201,9 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
       call.id,
       turnId,
       call.name,
-      JSON.stringify(call.arguments),
-      call.result,
-      call.durationMs,
+      JSON.stringify(call.arguments ?? {}) ?? "{}",
+      call.result != null ? String(call.result) : null,
+      typeof call.durationMs === "number" ? call.durationMs : 0,
       call.error ?? null,
     );
   };

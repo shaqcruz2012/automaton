@@ -66,15 +66,16 @@ describe("ProviderRegistry", () => {
     const registry = ProviderRegistry.fromConfig(makeMissingPath());
 
     const providers = registry.getProviders();
-    expect(providers.length).toBe(4);
+    expect(providers.length).toBe(5);
     expect(providers.map((provider) => provider.id)).toEqual([
+      "anthropic",
       "openai",
       "groq",
-      "together",
+      "mistral",
       "local",
     ]);
     expect(providers.find((provider) => provider.id === "openai")?.enabled).toBe(true);
-    expect(providers.find((provider) => provider.id === "together")?.enabled).toBe(false);
+    expect(providers.find((provider) => provider.id === "local")?.enabled).toBe(false);
   });
 
   it("fromConfig keeps defaults when JSON is invalid", () => {
@@ -83,8 +84,8 @@ describe("ProviderRegistry", () => {
     fs.writeFileSync(filePath, "{ not json", "utf8");
 
     const registry = ProviderRegistry.fromConfig(filePath);
-    expect(registry.getProviders().length).toBe(4);
-    expect(registry.resolveModel("reasoning").provider.id).toBe("openai");
+    expect(registry.getProviders().length).toBe(5);
+    expect(registry.resolveModel("reasoning").provider.id).toBe("anthropic");
   });
 
   it("fromConfig applies provider overrides", () => {
@@ -144,7 +145,7 @@ describe("ProviderRegistry", () => {
     });
 
     const registry = ProviderRegistry.fromConfig(filePath);
-    expect(registry.getProviders().length).toBe(4);
+    expect(registry.getProviders().length).toBe(5);
   });
 
   it("fromConfig uses emergencyStopCredits from config", () => {
@@ -165,15 +166,15 @@ describe("ProviderRegistry", () => {
     const registry = createRegistryFromDefaults();
     const resolved = registry.resolveModel("reasoning");
 
-    expect(resolved.provider.id).toBe("openai");
-    expect(resolved.model.id).toBe("gpt-4.1");
+    expect(resolved.provider.id).toBe("anthropic");
+    expect(resolved.model.id).toBe("claude-sonnet-4-20250514");
   });
 
   it("resolveModel returns fast model from default tier", () => {
     const registry = createRegistryFromDefaults();
     const resolved = registry.resolveModel("fast");
 
-    expect(resolved.provider.id).toBe("groq");
+    expect(resolved.provider.id).toBe("anthropic");
     expect(resolved.model.tier).toBe("fast");
   });
 
@@ -181,20 +182,19 @@ describe("ProviderRegistry", () => {
     const registry = createRegistryFromDefaults();
     const resolved = registry.resolveModel("cheap");
 
-    expect(resolved.provider.id).toBe("groq");
-    expect(resolved.model.id).toBe("llama-3.1-8b-instant");
+    expect(resolved.provider.id).toBe("anthropic");
+    expect(resolved.model.id).toBe("claude-haiku-4-5-20251001");
   });
 
   it("resolveCandidates returns fallback order for reasoning tier", () => {
     const registry = createRegistryFromDefaults();
-    expect(providerIdsForTier(registry, "reasoning")).toEqual(["openai", "groq"]);
+    expect(providerIdsForTier(registry, "reasoning")).toEqual(["anthropic", "openai", "groq", "mistral"]);
   });
 
   it("resolveCandidates skips providers disabled in config", () => {
     const registry = createRegistryFromDefaults();
     const fastCandidates = providerIdsForTier(registry, "fast");
 
-    expect(fastCandidates).not.toContain("together");
     expect(fastCandidates).not.toContain("local");
   });
 
@@ -203,7 +203,7 @@ describe("ProviderRegistry", () => {
     const resolved = registry.resolveModel("reasoning", true);
 
     expect(resolved.model.tier).toBe("fast");
-    expect(resolved.provider.id).toBe("groq");
+    expect(resolved.provider.id).toBe("anthropic");
   });
 
   it("resolveModel in survival mode downgrades fast to cheap", () => {
@@ -211,7 +211,7 @@ describe("ProviderRegistry", () => {
     const resolved = registry.resolveModel("fast", true);
 
     expect(resolved.model.tier).toBe("cheap");
-    expect(resolved.model.id).toBe("llama-3.1-8b-instant");
+    expect(resolved.model.id).toBe("claude-haiku-4-5-20251001");
   });
 
   it("resolveModel in survival mode keeps cheap as cheap", () => {
@@ -257,11 +257,11 @@ describe("ProviderRegistry", () => {
   it("disableProvider and enableProvider toggle provider availability", () => {
     const registry = createRegistryFromDefaults();
 
-    registry.disableProvider("openai", "manual", 60_000);
-    expect(providerIdsForTier(registry, "reasoning")).toEqual(["groq"]);
+    registry.disableProvider("anthropic", "manual", 60_000);
+    expect(providerIdsForTier(registry, "reasoning")).toEqual(["openai", "groq", "mistral"]);
 
-    registry.enableProvider("openai");
-    expect(providerIdsForTier(registry, "reasoning")).toEqual(["openai", "groq"]);
+    registry.enableProvider("anthropic");
+    expect(providerIdsForTier(registry, "reasoning")).toEqual(["anthropic", "openai", "groq", "mistral"]);
   });
 
   it("disableProvider ignores unknown provider IDs", () => {
@@ -280,12 +280,12 @@ describe("ProviderRegistry", () => {
     vi.useFakeTimers();
 
     const registry = createRegistryFromDefaults();
-    registry.disableProvider("openai", "maintenance", 5_000);
+    registry.disableProvider("anthropic", "maintenance", 5_000);
 
-    expect(providerIdsForTier(registry, "reasoning")).toEqual(["groq"]);
+    expect(providerIdsForTier(registry, "reasoning")).toEqual(["openai", "groq", "mistral"]);
 
     vi.advanceTimersByTime(5_001);
-    expect(providerIdsForTier(registry, "reasoning")).toEqual(["openai", "groq"]);
+    expect(providerIdsForTier(registry, "reasoning")).toEqual(["anthropic", "openai", "groq", "mistral"]);
 
     vi.useRealTimers();
   });
@@ -396,11 +396,14 @@ describe("ProviderRegistry", () => {
     expect(() => registry.resolveModel("reasoning")).toThrow(/No provider\/model/);
   });
 
-  it("creates OpenAI clients when resolving models", () => {
+  it("creates OpenAI clients when resolving models (skips anthropic)", () => {
     const registry = createRegistryFromDefaults();
+    // reasoning: anthropic(skip), openai(1), groq(2), mistral(3) = 3 OpenAI clients
     registry.resolveModel("reasoning");
+    // fast: anthropic(skip), groq(4), openai(5), mistral(6) = 3 more OpenAI clients
     registry.resolveModel("fast");
 
-    expect(openAiCtor).toHaveBeenCalledTimes(4);
+    // resolveCandidates creates a client per non-anthropic candidate
+    expect(openAiCtor).toHaveBeenCalledTimes(6);
   });
 });
