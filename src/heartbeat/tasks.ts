@@ -604,6 +604,84 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     }
   },
 
+  // ─── Service Watchdog ───────────────────────────────────────────
+  // Checks if revenue services are running and restarts any that are down.
+  // Runs in the heartbeat daemon (no inference cost) so the agent doesn't
+  // waste turns on service restarts.
+  service_watchdog: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
+    const http = await import("http");
+    const { spawn } = await import("child_process");
+    const path = await import("path");
+    const fs = await import("fs");
+
+    const { getAutomatonDir } = await import("../identity/wallet.js");
+    const automatonDir = getAutomatonDir();
+
+    const services = [
+      { name: "Landing Page",        file: "landing-minimal.js",          port: 3000, health: "/" },
+      { name: "Text Analysis API",   file: "services/text-analysis.js",   port: 9000, health: "/health" },
+      { name: "Data Processing API", file: "services/data-processing.js", port: 9001, health: "/health" },
+      { name: "TrustCheck API",      file: "trustcheck-complete.js",      port: 9002, health: "/health" },
+      { name: "Payment Validator",   file: "payment-validator.js",        port: 6000, health: "/status" },
+    ];
+
+    // Quick health check: HTTP GET with 3s timeout
+    function checkHealth(port: number, healthPath: string): Promise<boolean> {
+      return new Promise((resolve) => {
+        const req = http.get(`http://localhost:${port}${healthPath}`, (res: any) => {
+          // Any response (even 402/404) means the server is alive
+          res.resume();
+          resolve(true);
+        });
+        req.on("error", () => resolve(false));
+        req.setTimeout(3000, () => { req.destroy(); resolve(false); });
+      });
+    }
+
+    const results: Array<{ name: string; port: number; alive: boolean; restarted: boolean }> = [];
+    let restarted = 0;
+
+    for (const svc of services) {
+      const alive = await checkHealth(svc.port, svc.health);
+      let didRestart = false;
+
+      if (!alive) {
+        const fullPath = path.join(automatonDir, svc.file);
+        if (fs.existsSync(fullPath)) {
+          try {
+            const child = spawn(process.execPath, [fullPath], {
+              cwd: automatonDir,
+              stdio: "ignore",
+              detached: true,
+            });
+            child.unref();
+            restarted++;
+            didRestart = true;
+            logger.info(`service_watchdog: restarted ${svc.name} (PID ${child.pid}) on port ${svc.port}`);
+          } catch (err: any) {
+            logger.error(`service_watchdog: failed to restart ${svc.name}`, err instanceof Error ? err : undefined);
+          }
+        } else {
+          logger.warn(`service_watchdog: ${svc.name} file not found: ${fullPath}`);
+        }
+      }
+
+      results.push({ name: svc.name, port: svc.port, alive, restarted: didRestart });
+    }
+
+    const aliveCount = results.filter((r) => r.alive).length;
+    taskCtx.db.setKV("service_watchdog_status", JSON.stringify({
+      timestamp: new Date().toISOString(),
+      services: results,
+      aliveCount,
+      totalCount: services.length,
+      restarted,
+    }));
+
+    // Don't wake the agent — the watchdog handles restarts silently
+    return { shouldWake: false };
+  },
+
   // ─── Creator Tax ────────────────────────────────────────────────
   // Automatically transfers a percentage of credits above a threshold
   // back to the creator's wallet at configurable milestones.

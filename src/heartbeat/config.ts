@@ -50,6 +50,12 @@ const DEFAULT_HEARTBEAT_CONFIG: HeartbeatConfig = {
       enabled: true,
     },
     {
+      name: "service_watchdog",
+      schedule: "*/5 * * * *",
+      task: "service_watchdog",
+      enabled: true,
+    },
+    {
       name: "creator_tax_check",
       schedule: "0 * * * *",
       task: "creator_tax_check",
