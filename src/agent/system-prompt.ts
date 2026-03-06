@@ -532,5 +532,5 @@ What will you do first? Consider:
 
 ${lastTurnSummary ? `Last thoughts:\n${lastTurnSummary}` : ""}
 
-Status is in system prompt — skip orientation. Read WORKLOG.md and execute next task.`;
+You MUST use your tools now. Call read_file to read ~/.automaton/WORKLOG.md, then execute the next task listed there. Do NOT respond with text only — you must make a tool call.`;
 }

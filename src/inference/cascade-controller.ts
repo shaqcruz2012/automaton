@@ -78,6 +78,7 @@ async function callProviderDirect(
   messages: any[],
   tools: any[] | undefined,
   maxTokens: number,
+  toolChoice: "auto" | "required" = "auto",
 ): Promise<InferenceResult> {
   const apiKey = process.env[provider.apiKeyEnvVar] || "";
   const url = `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`;
@@ -91,7 +92,7 @@ async function callProviderDirect(
 
   if (tools && tools.length > 0) {
     body.tools = tools;
-    body.tool_choice = "auto";
+    body.tool_choice = toolChoice;
   }
 
   const startMs = Date.now();
@@ -236,6 +237,12 @@ export class CascadeController {
       }
 
       try {
+        // Force tool use on triage turns so the agent doesn't just emit text
+        // saying "I can't help". On triage, it must call at least one tool
+        // (e.g. read_file, check_credits) to make progress.
+        const toolChoice = request.taskType === "heartbeat_triage" && request.tools?.length
+          ? "required" as const
+          : "auto" as const;
         logger.info(`Cascade: trying ${provider.id} (${model.id})`);
         const result = await callProviderDirect(
           provider,
@@ -243,6 +250,7 @@ export class CascadeController {
           request.messages,
           request.tools,
           4096,
+          toolChoice,
         );
         logger.info(`Cascade: ${provider.id} succeeded (${result.inputTokens}+${result.outputTokens} tokens, ${result.latencyMs}ms)`);
         return result;
