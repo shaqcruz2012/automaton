@@ -220,6 +220,7 @@ export function buildSystemPrompt(params: {
   tools: AutomatonTool[];
   skills?: Skill[];
   isFirstRun: boolean;
+  taskType?: string;
 }): string {
   const {
     identity,
@@ -230,6 +231,7 @@ export function buildSystemPrompt(params: {
     tools,
     skills,
     isFirstRun,
+    taskType,
   } = params;
 
   // Fix 5: Prompt reordering for cache hits.
@@ -252,7 +254,11 @@ export function buildSystemPrompt(params: {
   staticSections.push(`--- CONSTITUTION (immutable, protected) ---\n${loadConstitution()}\n--- END CONSTITUTION ---`);
 
   // Layer 3: Operational Context (immutable)
-  staticSections.push(OPERATIONAL_CONTEXT);
+  // Skip for triage turns — the model only has read_file+sleep available,
+  // so referencing exec/create_goal/write_file creates prompt/tool incoherence.
+  if (taskType !== "heartbeat_triage") {
+    staticSections.push(OPERATIONAL_CONTEXT);
+  }
 
   // Layer 4: Genesis Prompt (set by creator, rarely changes)
   if (config.genesisPrompt) {

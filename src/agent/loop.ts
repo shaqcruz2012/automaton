@@ -387,11 +387,41 @@ export async function runAgentLoop(
 
   // ─── The Loop ──────────────────────────────────────────────
 
+  // ── Session-scoped constants (hoisted out of while loop) ──
+  const IDLE_ONLY_TOOLS = new Set([
+    "check_credits", "system_synopsis", "review_memory",
+    "list_children", "check_child_status", "list_sandboxes", "list_models",
+    "list_skills", "git_status", "git_log", "check_reputation",
+    "recall_facts", "recall_procedure", "heartbeat_ping",
+    "check_inference_spending",
+    "orchestrator_status", "list_goals", "get_plan",
+  ]);
+  const MUTATING_TOOLS = new Set([
+    "exec", "write_file", "edit_own_file", "transfer_credits", "fund_child",
+    "spawn_child", "start_child", "delete_sandbox", "create_sandbox",
+    "install_npm_package", "install_mcp_server", "install_skill",
+    "create_skill", "remove_skill", "install_skill_from_git",
+    "install_skill_from_url", "pull_upstream", "git_commit", "git_push",
+    "git_branch", "git_clone", "send_message", "message_child",
+    "register_domain", "register_erc8004", "give_feedback",
+    "update_genesis_prompt", "update_agent_card", "modify_heartbeat",
+    "expose_port", "remove_port", "x402_fetch", "manage_dns",
+    "distress_signal", "prune_dead_children", "sleep",
+    "update_soul", "remember_fact", "set_goal", "complete_goal",
+    "save_procedure", "note_about_agent", "forget",
+    "enter_low_compute", "switch_model", "review_upstream_changes",
+  ]);
+  const TRIAGE_ALLOWED_TOOLS = new Set(["read_file", "sleep"]);
+
   const MAX_IDLE_TURNS = 3; // Force sleep after N turns with no real work
   let idleTurnCount = 0;
 
   const maxCycleTurns = config.maxTurnsPerCycle ?? 10;
   let cycleTurnCount = 0;
+
+  // Track turns within THIS session only — prevents cross-session contamination
+  // in the continuation nudge and WORKLOG.md read suppression logic.
+  const sessionTurns: AgentTurn[] = [];
 
   let pendingInput: { content: string; source: string } | undefined = {
     content: wakeupInput,
@@ -464,16 +494,8 @@ export async function runAgentLoop(
         }
       }
 
-      // Build context — filter out purely idle turns (only status checks)
-      // to prevent the model from continuing a status-check pattern
-      const IDLE_ONLY_TOOLS = new Set([
-        "check_credits", "system_synopsis", "review_memory",
-        "list_children", "check_child_status", "list_sandboxes", "list_models",
-        "list_skills", "git_status", "git_log", "check_reputation",
-        "recall_facts", "recall_procedure", "heartbeat_ping",
-        "check_inference_spending",
-        "orchestrator_status", "list_goals", "get_plan",
-      ]);
+      // Use session-scoped turns (not DB) for nudge/suppression to avoid
+      // cross-session contamination. DB turns still used for context building.
       const allTurns = db.getRecentTurns(6);
 
       // ── Continuation nudge ──
@@ -483,13 +505,15 @@ export async function runAgentLoop(
       // either repeat the last tool call or generate empty/confused text.
       // Fix: inject a directive nudge that includes a summary of already-completed
       // actions so the model knows what NOT to repeat.
-      if (!pendingInput && allTurns.length > 0) {
-        const lastTurn = allTurns[allTurns.length - 1];
+      // IMPORTANT: Use sessionTurns (in-memory, current session only) — NOT allTurns
+      // (from DB, crosses session boundaries). Cross-session data caused WORKLOG.md
+      // suppression to fire falsely on turn 1 of new cycles.
+      if (!pendingInput && sessionTurns.length > 0) {
+        const lastTurn = sessionTurns[sessionTurns.length - 1];
         const hasToolResults = lastTurn.toolCalls.length > 0;
         if (hasToolResults) {
-          // Build a compact summary of tool calls already made this session
-          // so the model knows what it already did and doesn't repeat.
-          const completedActions = allTurns
+          // Build a compact summary of tool calls already made THIS session
+          const completedActions = sessionTurns
             .flatMap((t) => t.toolCalls)
             .map((tc) => {
               const argStr = JSON.stringify(tc.arguments ?? {});
@@ -501,11 +525,8 @@ export async function runAgentLoop(
             ? `\nAlready completed this session:\n${completedActions.join("\n")}\n`
             : "";
 
-          // Detect if WORKLOG.md was already read in a previous turn.
-          // The triage turn (turn 1) always reads WORKLOG.md, so when the
-          // agent_turn model (turn 2) sees this nudge, we explicitly tell it
-          // the content is already in context to avoid a redundant read_file.
-          const worklogAlreadyRead = allTurns.some((t) =>
+          // Detect if WORKLOG.md was already read THIS session (not previous sessions).
+          const worklogAlreadyRead = sessionTurns.some((t) =>
             t.toolCalls.some(
               (tc) =>
                 tc.name === "read_file" &&
@@ -547,8 +568,7 @@ export async function runAgentLoop(
       // guarantees the model reads WORKLOG.md rather than going rogue
       // (e.g., writing new HTML files, starting servers, exposing ports).
       if (earlyTaskType === "heartbeat_triage") {
-        const TRIAGE_ALLOWED = new Set(["read_file", "sleep"]);
-        promptTools = promptTools.filter((t) => TRIAGE_ALLOWED.has(t.name));
+        promptTools = promptTools.filter((t) => TRIAGE_ALLOWED_TOOLS.has(t.name));
       }
 
       const systemPrompt = buildSystemPrompt({
@@ -560,6 +580,7 @@ export async function runAgentLoop(
         tools: promptTools,
         skills,
         isFirstRun,
+        taskType: earlyTaskType,
       });
 
       // Phase 2.2: Pre-turn memory retrieval (skip for triage to reduce input tokens)
@@ -771,6 +792,7 @@ export async function runAgentLoop(
         }
       });
       onTurnComplete?.(turn);
+      sessionTurns.push(turn);
 
       // Phase 2.2: Post-turn memory ingestion (non-blocking)
       try {
@@ -946,22 +968,7 @@ export async function runAgentLoop(
       // ── Idle turn detection ──
       // If this turn had no pending input and didn't do any real work
       // (no mutations — only read/check/list/info tools), count as idle.
-      // Use a blocklist of mutating tools rather than an allowlist of safe ones.
-      const MUTATING_TOOLS = new Set([
-        "exec", "write_file", "edit_own_file", "transfer_credits", "fund_child",
-        "spawn_child", "start_child", "delete_sandbox", "create_sandbox",
-        "install_npm_package", "install_mcp_server", "install_skill",
-        "create_skill", "remove_skill", "install_skill_from_git",
-        "install_skill_from_url", "pull_upstream", "git_commit", "git_push",
-        "git_branch", "git_clone", "send_message", "message_child",
-        "register_domain", "register_erc8004", "give_feedback",
-        "update_genesis_prompt", "update_agent_card", "modify_heartbeat",
-        "expose_port", "remove_port", "x402_fetch", "manage_dns",
-        "distress_signal", "prune_dead_children", "sleep",
-        "update_soul", "remember_fact", "set_goal", "complete_goal",
-        "save_procedure", "note_about_agent", "forget",
-        "enter_low_compute", "switch_model", "review_upstream_changes",
-      ]);
+      // MUTATING_TOOLS is hoisted above the while loop.
       const didMutate = turn.toolCalls.some((tc) => MUTATING_TOOLS.has(tc.name));
 
       if (!currentInput && !didMutate) {
