@@ -541,7 +541,15 @@ export async function runAgentLoop(
       // LLM from seeing "you have 57 tools" in the prompt while only receiving 15
       // tool definitions, which caused it to say "unable to access tools".
       const survivalTierForPrompt = getSurvivalTier(financial.creditsCents);
-      const promptTools = filterToolsByPhase(tools, earlyTaskType, survivalTierForPrompt);
+      let promptTools = filterToolsByPhase(tools, earlyTaskType, survivalTierForPrompt);
+
+      // For triage turns, restrict to ONLY read_file so tool_choice=required
+      // guarantees the model reads WORKLOG.md rather than going rogue
+      // (e.g., writing new HTML files, starting servers, exposing ports).
+      if (earlyTaskType === "heartbeat_triage") {
+        const TRIAGE_ALLOWED = new Set(["read_file", "sleep"]);
+        promptTools = promptTools.filter((t) => TRIAGE_ALLOWED.has(t.name));
+      }
 
       const systemPrompt = buildSystemPrompt({
         identity,
