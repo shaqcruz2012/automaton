@@ -154,6 +154,13 @@ const FORBIDDEN_COMMAND_PATTERNS = [
   /cat\s+.*\.gnupg/,
   /cat\s+.*\.env/,
   /cat\s+.*wallet\.json/,
+  // Sleep workarounds: the model tries exec-based delays instead of calling
+  // the sleep tool, wasting 5+ minutes on blocking commands.
+  /\btimeout\s+\/t\b/i,
+  /\bping\s+(-n\s+\d+\s+)?127\.0\.0\.1\b/i,
+  /\bping\s+(-n\s+\d+\s+)?localhost\b/i,
+  /\bStart-Sleep\b/i,
+  /\bsleep\s+\d+/,
 ];
 
 function isForbiddenCommand(command: string, sandboxId: string): string | null {

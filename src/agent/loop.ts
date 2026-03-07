@@ -577,14 +577,14 @@ export async function runAgentLoop(
           if (isPostTriage) {
             const steps = extractWorklogSteps();
             if (steps.length > 0) {
-              stepDirective = `\n\nWAKE CYCLE PROTOCOL — orientation is complete. Execute these steps IN ORDER:\n${steps.map((s, i) => `  ${i + 1}. ${s}`).join("\n")}\nStart with Step 1 NOW. Do NOT skip steps. Reading old status files does NOT count as running the healthcheck. Do NOT sleep until all prior steps are complete.`;
+              stepDirective = `\n\nWAKE CYCLE PROTOCOL — orientation is complete. Execute these steps IN ORDER:\n${steps.map((s, i) => `  ${i + 1}. ${s}`).join("\n")}\nStart with Step 1 NOW. Do NOT skip steps. Reading old status files does NOT count as running the healthcheck. Do NOT sleep until all prior steps are complete.\nWhen ALL steps are done, call the \`sleep\` tool directly. NEVER use exec() to sleep (no timeout, ping, Start-Sleep, or similar).`;
             } else {
               stepDirective = "\n\nOrientation is complete. Follow your WORKLOG.md protocol steps (in system prompt) IN ORDER. Do NOT skip to sleep until all prior steps are complete.";
             }
           } else {
             // Subsequent nudges (after agent_turn has started executing steps):
             // Remind the model to follow sequential order, not skip to sleep.
-            stepDirective = "\nExecute the NEXT sequential step from your WORKLOG.md protocol. Do NOT skip to sleep until all prior steps are complete.";
+            stepDirective = "\nExecute the NEXT sequential step from your WORKLOG.md protocol. Do NOT skip to sleep until all prior steps are complete.\nWhen ALL steps are done, call the `sleep` tool directly. NEVER use exec() to sleep (no timeout, ping, Start-Sleep, or similar commands).";
           }
 
           pendingInput = {
@@ -794,9 +794,20 @@ export async function runAgentLoop(
           // Deduplicate: reasoning models repeat the same tool calls in their
           // chain-of-thought. Keep only the first occurrence of each unique
           // name+args combination, capped at 5 to avoid executing noise.
+          // Sort JSON keys for stable comparison — JSON.stringify of the same
+          // object can produce different key orders, causing false non-matches.
           const seen = new Set<string>();
+          const stableKey = (name: string, argsStr: string): string => {
+            try {
+              const obj = JSON.parse(argsStr);
+              const sorted = Object.keys(obj).sort();
+              return `${name}:${JSON.stringify(obj, sorted)}`;
+            } catch {
+              return `${name}:${argsStr}`;
+            }
+          };
           const deduped = parsedCalls.filter((tc) => {
-            const key = `${tc.function.name}:${tc.function.arguments}`;
+            const key = stableKey(tc.function.name, tc.function.arguments);
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
@@ -848,7 +859,6 @@ export async function runAgentLoop(
       }
 
       if (toolCallsToExecute.length > 0) {
-        const toolCallMessages: any[] = [];
         let callCount = 0;
         const currentInputSource = currentInput?.source as InputSource | undefined;
 
