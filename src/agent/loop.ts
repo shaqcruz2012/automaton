@@ -501,11 +501,26 @@ export async function runAgentLoop(
             ? `\nAlready completed this session:\n${completedActions.join("\n")}\n`
             : "";
 
+          // Detect if WORKLOG.md was already read in a previous turn.
+          // The triage turn (turn 1) always reads WORKLOG.md, so when the
+          // agent_turn model (turn 2) sees this nudge, we explicitly tell it
+          // the content is already in context to avoid a redundant read_file.
+          const worklogAlreadyRead = allTurns.some((t) =>
+            t.toolCalls.some(
+              (tc) =>
+                tc.name === "read_file" &&
+                String(tc.arguments?.path ?? "").includes("WORKLOG.md"),
+            ),
+          );
+          const worklogNudge = worklogAlreadyRead
+            ? "\nIMPORTANT: WORKLOG.md was already read in a previous turn. Its full content is in your context above. Do NOT call read_file on WORKLOG.md again — use the content already available."
+            : "";
+
           pendingInput = {
-            content: `${actionSummary}\nDo NOT repeat any action listed above. Proceed to the NEXT different task from your worklog. Use a DIFFERENT tool or target.`,
+            content: `${actionSummary}\nDo NOT repeat any action listed above. Proceed to the NEXT different task from your worklog. Use a DIFFERENT tool or target.${worklogNudge}`,
             source: "system",
           };
-          log(config, "[NUDGE] Injected continuation directive (no pending input after tool results).");
+          log(config, `[NUDGE] Injected continuation directive (no pending input after tool results).${worklogAlreadyRead ? " WORKLOG.md read suppressed." : ""}`);
         }
       }
 
