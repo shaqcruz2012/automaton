@@ -412,7 +412,11 @@ export async function runAgentLoop(
     "save_procedure", "note_about_agent", "forget",
     "enter_low_compute", "switch_model", "review_upstream_changes",
   ]);
-  const TRIAGE_ALLOWED_TOOLS = new Set(["read_file", "sleep"]);
+  // Triage can ONLY read_file — no sleep allowed. This forces the model to
+  // orient first (read status.md), then the agent_turn phase always executes
+  // the full WORKLOG steps. Without this, triage short-circuits by calling
+  // sleep directly when recent results are in context.
+  const TRIAGE_ALLOWED_TOOLS = new Set(["read_file"]);
 
   // ── WORKLOG step parser ──
   // Extracts "Step N. <description>" lines from WORKLOG.md so the continuation
