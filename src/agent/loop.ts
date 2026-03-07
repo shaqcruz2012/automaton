@@ -390,7 +390,7 @@ export async function runAgentLoop(
   const MAX_IDLE_TURNS = 3; // Force sleep after N turns with no real work
   let idleTurnCount = 0;
 
-  const maxCycleTurns = config.maxTurnsPerCycle ?? 25;
+  const maxCycleTurns = config.maxTurnsPerCycle ?? 10;
   let cycleTurnCount = 0;
 
   let pendingInput: { content: string; source: string } | undefined = {
