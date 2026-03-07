@@ -621,6 +621,17 @@ export async function runAgentLoop(
         promptTools = promptTools.filter((t) => TRIAGE_ALLOWED_TOOLS.has(t.name));
       }
 
+      // Block sleep until the healthcheck has actually run this session.
+      // Without this, the agent_turn model sees "all healthy" from stale status
+      // and calls sleep immediately, skipping the entire WORKLOG protocol.
+      // Once exec has been called (healthcheck), sleep is re-enabled.
+      const healthcheckRan = sessionTurns.some((t) =>
+        t.toolCalls.some((tc) => tc.name === "exec"),
+      );
+      if (!healthcheckRan && earlyTaskType !== "heartbeat_triage") {
+        promptTools = promptTools.filter((t) => t.name !== "sleep");
+      }
+
       const systemPrompt = buildSystemPrompt({
         identity,
         config,
