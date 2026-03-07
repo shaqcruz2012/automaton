@@ -97,7 +97,7 @@ export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
   version: "0.2.1",
   skillsDir: "~/.automaton/skills",
   maxChildren: 3,
-  maxTurnsPerCycle: 25,
+  maxTurnsPerCycle: 10,
   childSandboxMemoryMb: 1024,
   socialRelayUrl: undefined,
 };
