@@ -20,6 +20,22 @@ import { createTokenCounter } from "../memory/context-manager.js";
 const MAX_CONTEXT_TURNS = 4;
 const SUMMARY_THRESHOLD = 3;
 
+/**
+ * Sanitize tool call IDs to conform to Mistral's API constraint:
+ * "must be a-z, A-Z, 0-9, with a length of 9"
+ * Stale IDs from text-parsed recovery (e.g. "text-parsed-01KK...") would cause
+ * 400 errors when replayed in conversation history on subsequent sessions.
+ */
+function sanitizeToolCallId(id: string | undefined): string {
+  if (!id) return Math.random().toString(36).slice(2, 11).padEnd(9, "0");
+  const clean = id.replace(/[^a-zA-Z0-9]/g, "");
+  // Use the LAST 9 chars — the unique suffix (ULID tail).
+  // Using the first 9 caused collisions: all "text-parsed-..." IDs
+  // start with "textparse", producing identical sanitized IDs.
+  if (clean.length >= 9) return clean.slice(-9);
+  return clean.padEnd(9, "0");
+}
+
 let tokenCounter: ReturnType<typeof createTokenCounter> | null = null;
 
 /** Maximum size for individual tool results in characters */
@@ -182,7 +198,7 @@ export function buildContextMessages(
             argsStr = JSON.stringify({ _truncated: true });
           }
           return {
-            id: tc.id,
+            id: sanitizeToolCallId(tc.id),
             type: "function" as const,
             function: {
               name: tc.name,
@@ -201,7 +217,7 @@ export function buildContextMessages(
         messages.push({
           role: "tool",
           content: truncateToolResult(rawContent),
-          tool_call_id: tc.id,
+          tool_call_id: sanitizeToolCallId(tc.id),
         });
       }
     }

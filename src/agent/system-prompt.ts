@@ -337,41 +337,45 @@ Data directory: ${dataDir}
   }
 
   // SOUL.md -- structured soul model (evolves over time)
-  const soul = loadCurrentSoul(db.raw);
-  if (soul) {
-    const lastHash = db.getKV("soul_content_hash");
-    if (lastHash && lastHash !== soul.contentHash) {
-      logger.warn("SOUL.md content changed since last load");
-    }
-    db.setKV("soul_content_hash", soul.contentHash);
-
-    const soulBlock = [
-      "## Soul [AGENT-EVOLVED CONTENT \u2014 soul/v1]",
-      `### Core Purpose\n${soul.corePurpose}`,
-      `### Values\n${soul.values.map((v) => "- " + v).join("\n")}`,
-      soul.personality ? `### Personality\n${soul.personality}` : "",
-      `### Boundaries\n${soul.boundaries.map((b) => "- " + b).join("\n")}`,
-      soul.strategy ? `### Strategy\n${soul.strategy}` : "",
-      soul.capabilities ? `### Capabilities\n${soul.capabilities}` : "",
-      "## End Soul",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-    dynamicSections.push(soulBlock);
-  } else {
-    const soulContent = loadSoulMd();
-    if (soulContent) {
-      const sanitized = sanitizeInput(soulContent, "soul", "skill_instruction");
-      const truncated = sanitized.content.slice(0, 5000);
-      const hash = crypto.createHash("sha256").update(soulContent).digest("hex");
+  // Soul — skip for triage (agent can't act on identity during heartbeat,
+  // saves ~1000-2000 tokens per 5-minute cycle)
+  if (taskType !== "heartbeat_triage") {
+    const soul = loadCurrentSoul(db.raw);
+    if (soul) {
       const lastHash = db.getKV("soul_content_hash");
-      if (lastHash && lastHash !== hash) {
+      if (lastHash && lastHash !== soul.contentHash) {
         logger.warn("SOUL.md content changed since last load");
       }
-      db.setKV("soul_content_hash", hash);
-      dynamicSections.push(
-        `## Soul [AGENT-EVOLVED CONTENT]\n${truncated}\n## End Soul`,
-      );
+      db.setKV("soul_content_hash", soul.contentHash);
+
+      const soulBlock = [
+        "## Soul [AGENT-EVOLVED CONTENT \u2014 soul/v1]",
+        `### Core Purpose\n${soul.corePurpose}`,
+        `### Values\n${soul.values.map((v) => "- " + v).join("\n")}`,
+        soul.personality ? `### Personality\n${soul.personality}` : "",
+        `### Boundaries\n${soul.boundaries.map((b) => "- " + b).join("\n")}`,
+        soul.strategy ? `### Strategy\n${soul.strategy}` : "",
+        soul.capabilities ? `### Capabilities\n${soul.capabilities}` : "",
+        "## End Soul",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+      dynamicSections.push(soulBlock);
+    } else {
+      const soulContent = loadSoulMd();
+      if (soulContent) {
+        const sanitized = sanitizeInput(soulContent, "soul", "skill_instruction");
+        const truncated = sanitized.content.slice(0, 5000);
+        const hash = crypto.createHash("sha256").update(soulContent).digest("hex");
+        const lastHash = db.getKV("soul_content_hash");
+        if (lastHash && lastHash !== hash) {
+          logger.warn("SOUL.md content changed since last load");
+        }
+        db.setKV("soul_content_hash", hash);
+        dynamicSections.push(
+          `## Soul [AGENT-EVOLVED CONTENT]\n${truncated}\n## End Soul`,
+        );
+      }
     }
   }
 
@@ -538,5 +542,5 @@ What will you do first? Consider:
 
 ${lastTurnSummary ? `Last thoughts:\n${lastTurnSummary}` : ""}
 
-You MUST use your tools now. Call read_file to read ~/.automaton/WORKLOG.md, then execute the next task listed there. Do NOT respond with text only — you must make a tool call.`;
+Your WORKLOG.md is already in the system prompt above — do NOT re-read it. Call read_file on status.md to check current service state. Do NOT respond with text only — you must make a tool call.`;
 }

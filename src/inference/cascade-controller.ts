@@ -237,19 +237,26 @@ export class CascadeController {
       }
 
       try {
-        // Force tool use on triage turns so the agent doesn't just emit text
-        // saying "I can't help". On triage, it must call at least one tool
-        // (e.g. read_file, check_credits) to make progress.
-        const toolChoice = request.taskType === "heartbeat_triage" && request.tools?.length
+        // Force tool use on triage AND agent_turn so the model must make actual
+        // tool calls instead of outputting JSON-as-text. Triage needs read_file;
+        // agent_turn needs exec/check_credits/write_file/sleep. Only planning
+        // and summarization should allow text-only responses.
+        const forceTools = (request.taskType === "heartbeat_triage" || request.taskType === "agent_turn")
+          && request.tools?.length;
+        const toolChoice = forceTools
           ? "required" as const
           : "auto" as const;
         logger.info(`Cascade: trying ${provider.id} (${model.id})`);
+        // Use the model's registered maxOutputTokens (e.g. 8192 for magistral)
+        // instead of hardcoded 4096. Reasoning models need room for chain-of-thought
+        // BEFORE emitting tool calls — 4096 caused finish_reason: "length" truncation.
+        const maxTokens = request.maxTokens ?? model.maxOutputTokens ?? 4096;
         const result = await callProviderDirect(
           provider,
           model,
           request.messages,
           request.tools,
-          4096,
+          maxTokens,
           toolChoice,
         );
         logger.info(`Cascade: ${provider.id} succeeded (${result.inputTokens}+${result.outputTokens} tokens, ${result.latencyMs}ms)`);

@@ -6,6 +6,7 @@
  */
 
 import path from "node:path";
+import fs from "node:fs";
 import type {
   AutomatonIdentity,
   AutomatonConfig,
@@ -413,6 +414,27 @@ export async function runAgentLoop(
   ]);
   const TRIAGE_ALLOWED_TOOLS = new Set(["read_file", "sleep"]);
 
+  // ── WORKLOG step parser ──
+  // Extracts "Step N. <description>" lines from WORKLOG.md so the continuation
+  // nudge can direct the agent to execute them sequentially after triage.
+  function extractWorklogSteps(): string[] {
+    try {
+      const home = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\Users\\default" : "/root");
+      const worklogPath = path.join(home, ".automaton", "WORKLOG.md");
+      if (!fs.existsSync(worklogPath)) return [];
+      const content = fs.readFileSync(worklogPath, "utf-8");
+      const steps: string[] = [];
+      const stepRegex = /^Step\s+\d+\.\s*(.+)/gm;
+      let match;
+      while ((match = stepRegex.exec(content)) !== null) {
+        steps.push(match[1].trim());
+      }
+      return steps;
+    } catch {
+      return [];
+    }
+  }
+
   const MAX_IDLE_TURNS = 3; // Force sleep after N turns with no real work
   let idleTurnCount = 0;
 
@@ -537,11 +559,35 @@ export async function runAgentLoop(
             ? "\nIMPORTANT: WORKLOG.md was already read in a previous turn. Its full content is in your context above. Do NOT call read_file on WORKLOG.md again — use the content already available."
             : "";
 
+          // ── Post-triage step directive ──
+          // After triage (only read_file/sleep used so far), the agent transitions
+          // to agent_turn with full tools. Without explicit direction, the model sees
+          // stale "all healthy" results from reading status.md and skips the actual
+          // healthcheck. Fix: parse WORKLOG steps and inject them as a sequential
+          // protocol the model MUST follow.
+          const isPostTriage = sessionTurns.every((t) =>
+            t.toolCalls.every((tc) => TRIAGE_ALLOWED_TOOLS.has(tc.name)),
+          );
+
+          let stepDirective = "";
+          if (isPostTriage) {
+            const steps = extractWorklogSteps();
+            if (steps.length > 0) {
+              stepDirective = `\n\nWAKE CYCLE PROTOCOL — orientation is complete. Execute these steps IN ORDER:\n${steps.map((s, i) => `  ${i + 1}. ${s}`).join("\n")}\nStart with Step 1 NOW. Do NOT skip steps. Reading old status files does NOT count as running the healthcheck. Do NOT sleep until all prior steps are complete.`;
+            } else {
+              stepDirective = "\n\nOrientation is complete. Follow your WORKLOG.md protocol steps (in system prompt) IN ORDER. Do NOT skip to sleep until all prior steps are complete.";
+            }
+          } else {
+            // Subsequent nudges (after agent_turn has started executing steps):
+            // Remind the model to follow sequential order, not skip to sleep.
+            stepDirective = "\nExecute the NEXT sequential step from your WORKLOG.md protocol. Do NOT skip to sleep until all prior steps are complete.";
+          }
+
           pendingInput = {
-            content: `${actionSummary}\nDo NOT repeat any action listed above. Proceed to the NEXT different task from your worklog. Use a DIFFERENT tool or target.${worklogNudge}`,
+            content: `${actionSummary}\nDo NOT repeat any action listed above.${stepDirective}${worklogNudge}`,
             source: "system",
           };
-          log(config, `[NUDGE] Injected continuation directive (no pending input after tool results).${worklogAlreadyRead ? " WORKLOG.md read suppressed." : ""}`);
+          log(config, `[NUDGE] Injected continuation directive.${isPostTriage ? " Post-triage step protocol injected." : ""}${worklogAlreadyRead ? " WORKLOG.md read suppressed." : ""}`);
         }
       }
 
@@ -697,6 +743,54 @@ export async function runAgentLoop(
         finishReason: routerResult.finishReason,
       };
 
+      // ── Text-as-tool-call recovery ──
+      // Some models (e.g. magistral-small-latest) output tool calls as JSON text
+      // instead of using the function calling API, especially when they run out of
+      // output tokens during chain-of-thought reasoning. Detect and parse these
+      // so the agent can still make progress.
+      if ((!response.toolCalls || response.toolCalls.length === 0) && response.message.content) {
+        const textContent = typeof response.message.content === "string"
+          ? response.message.content
+          : String(response.message.content);
+        // Require ```json (not bare ```) to avoid matching quoted data structures
+        // that happen to have a "function" key (e.g. status.json contents).
+        const jsonBlockRegex = /```json\s*\n?\s*(\{[\s\S]*?\})\s*\n?\s*```/g;
+        const parsedCalls: any[] = [];
+        let jsonMatch;
+        while ((jsonMatch = jsonBlockRegex.exec(textContent)) !== null) {
+          try {
+            const obj = JSON.parse(jsonMatch[1]);
+            if (obj && typeof obj.function === "string") {
+              const { function: toolName, ...toolArgs } = obj;
+              parsedCalls.push({
+                id: Math.random().toString(36).slice(2, 11).padEnd(9, "0"),
+                type: "function",
+                function: {
+                  name: toolName,
+                  arguments: JSON.stringify(toolArgs),
+                },
+              });
+            }
+          } catch {
+            // Not valid JSON, skip
+          }
+        }
+        if (parsedCalls.length > 0) {
+          // Deduplicate: reasoning models repeat the same tool calls in their
+          // chain-of-thought. Keep only the first occurrence of each unique
+          // name+args combination, capped at 5 to avoid executing noise.
+          const seen = new Set<string>();
+          const deduped = parsedCalls.filter((tc) => {
+            const key = `${tc.function.name}:${tc.function.arguments}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          }).slice(0, 5);
+          log(config, `[TEXT-AS-TOOL] Recovered ${deduped.length} unique tool call(s) from ${parsedCalls.length} parsed (deduped+capped)`);
+          response.toolCalls = deduped;
+        }
+      }
+
       const turn: AgentTurn = {
         id: ulid(),
         timestamp: new Date().toISOString(),
@@ -710,10 +804,16 @@ export async function runAgentLoop(
       };
 
       // ── Execute Tool Calls ──
-      // Guard: if the model hit max_tokens, the LAST tool call is likely truncated
-      // (e.g. write_file with no content). Detect and skip it.
+      // Guard: if the model hit max_tokens, the LAST native tool call is likely
+      // truncated (e.g. write_file with no content). Detect and skip it.
+      // Skip this guard for text-parsed calls — those are recovered from complete
+      // JSON blocks (regex requires closing backticks), so they're never truncated.
       let toolCallsToExecute = response.toolCalls || [];
+      const isTextParsed = toolCallsToExecute.length > 0 &&
+        toolCallsToExecute[0].id?.length === 9 &&
+        !toolCallsToExecute[0].id?.startsWith("call_");
       if (
+        !isTextParsed &&
         (response.finishReason === "max_tokens" || response.finishReason === "length") &&
         toolCallsToExecute.length > 0
       ) {
@@ -999,14 +1099,17 @@ export async function runAgentLoop(
       }
 
       // ── If no tool calls and just text, the agent might be done thinking ──
+      // Catches both "stop" (natural end) and "length"/"max_tokens" (model ran
+      // out of output tokens during reasoning before emitting tool calls).
+      // Without this, text-only + length triggers a retry loop that hits
+      // Mistral's message ordering constraint (assistant→assistant is invalid).
       if (
         running &&
-        (!response.toolCalls || response.toolCalls.length === 0) &&
-        response.finishReason === "stop"
+        (!response.toolCalls || response.toolCalls.length === 0)
       ) {
         // Agent produced text without tool calls.
         // This is a natural pause point -- no work queued, sleep longer.
-        log(config, "[IDLE] No pending inputs. Sleeping 5min.");
+        log(config, `[IDLE] Text-only response (finishReason: ${response.finishReason}). Sleeping 5min.`);
         db.setKV(
           "sleep_until",
           new Date(Date.now() + 300_000).toISOString(),
