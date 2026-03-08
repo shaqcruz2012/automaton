@@ -708,11 +708,10 @@ export async function runAgentLoop(
         }
       }
 
-      // Capture input before clearing
+      // Capture input but DON'T clear yet — clearing happens after
+      // successful turn recording. If inference fails, pendingInput
+      // must survive so the next iteration has a user message.
       const currentInput = pendingInput;
-
-      // Clear pending input after use
-      pendingInput = undefined;
 
       // ── Adaptive rate-limit cooldown ──
       // Tier 1 Haiku: 50K input tokens/min. Cooldown scales with actual token usage.
@@ -928,6 +927,8 @@ export async function runAgentLoop(
       });
       onTurnComplete?.(turn);
       sessionTurns.push(turn);
+      // NOW safe to clear pendingInput — the turn was recorded successfully
+      pendingInput = undefined;
 
       // Phase 2.2: Post-turn memory ingestion (non-blocking)
       try {

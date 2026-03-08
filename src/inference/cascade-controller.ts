@@ -38,8 +38,10 @@ const logger = createLogger("cascade");
  */
 function isCascadable400(errMsg: string): boolean {
   if (!/\b400\b/.test(errMsg)) return false;
+  // Message-ordering errors fail identically on every provider — don't cascade
+  if (/message.order|role.*order|last.role|Expected.*role/i.test(errMsg)) return false;
   // Only cascade on message-format / validation errors, NOT auth issues
-  const validationPatterns = /role|message|format|expected|invalid.*content|validation|schema|field|parameter/i;
+  const validationPatterns = /format|expected|invalid.*content|validation|schema|field|parameter/i;
   const authPatterns = /api.key|auth|token|credential|unauthorized|forbidden/i;
   return validationPatterns.test(errMsg) && !authPatterns.test(errMsg);
 }
@@ -51,7 +53,7 @@ const PNL_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROVIDER_TIMEOUT_MS = 60_000;
 
 /** Circuit breaker: disable provider after this many consecutive failures */
-const CB_FAILURE_THRESHOLD = 5;
+const CB_FAILURE_THRESHOLD = 3;
 /** Circuit breaker: keep provider disabled for this long */
 const CB_DISABLE_MS = 5 * 60_000;
 
@@ -93,6 +95,40 @@ function pickModel(provider: ProviderConfig, taskType: string): ModelConfig | nu
 }
 
 /**
+ * Sanitize messages for OpenAI-compatible providers (Mistral, Ollama).
+ * - Merges consecutive same-role messages
+ * - Ensures last message is user or tool (Mistral requirement)
+ */
+function sanitizeMessagesForOpenAI(messages: any[]): any[] {
+  // 1. Merge consecutive same-role messages
+  const merged: any[] = [];
+  for (const msg of messages) {
+    const last = merged[merged.length - 1];
+    if (last && last.role === msg.role && msg.role !== "system" && msg.role !== "tool") {
+      merged[merged.length - 1] = {
+        ...last,
+        content: (last.content || "") + "\n" + (msg.content || ""),
+        tool_calls: msg.tool_calls
+          ? [...(last.tool_calls || []), ...msg.tool_calls]
+          : last.tool_calls,
+      };
+    } else {
+      merged.push({ ...msg });
+    }
+  }
+
+  // 2. Ensure last message is user or tool
+  if (merged.length > 0) {
+    const last = merged[merged.length - 1];
+    if (last.role === "assistant") {
+      merged.push({ role: "user", content: "Continue." });
+    }
+  }
+
+  return merged;
+}
+
+/**
  * Call an OpenAI-compatible /v1/chat/completions endpoint directly.
  * Used for free-tier providers (Mistral) and local (Ollama).
  */
@@ -107,9 +143,10 @@ async function callProviderDirect(
   const apiKey = process.env[provider.apiKeyEnvVar] || "";
   const url = `${provider.baseUrl.replace(/\/$/, "")}/chat/completions`;
 
+  const sanitized = sanitizeMessagesForOpenAI(messages);
   const body: Record<string, unknown> = {
     model: model.id,
-    messages,
+    messages: sanitized,
     max_tokens: maxTokens,
     stream: false,
   };
