@@ -2015,55 +2015,6 @@ Model: ${ctx.inference.getDefaultModel()}
 
     // === Phase 3.2: Social & Registry Tools ===
 
-    // ── Social / Messaging Tools (disabled — no social relay) ──
-    {
-      name: "send_message",
-      description:
-        "DISABLED. Social relay is not available. Do NOT call this tool — it will always fail. Write to WORKLOG.md instead.",
-      category: "conway",
-      riskLevel: "caution",
-      parameters: {
-        type: "object",
-        properties: {
-          to_address: {
-            type: "string",
-            description: "Recipient wallet address (0x...)",
-          },
-          content: {
-            type: "string",
-            description: "Message content to send",
-          },
-          reply_to: {
-            type: "string",
-            description: "Optional message ID to reply to",
-          },
-        },
-        required: ["to_address", "content"],
-      },
-      execute: async (_args, _ctx) => {
-        return "DISABLED: Social relay is not configured and will not be available. Do not retry. Write status updates to WORKLOG.md instead — your creator reads it directly.";
-      },
-      /* original implementation preserved for when social relay is re-enabled:
-      execute_original: async (args, ctx) => {
-        if (!ctx.social) {
-          return "Social relay not configured. Set socialRelayUrl in config.";
-        }
-        // Phase 3.2: Enforce MESSAGE_LIMITS size check
-        const content = args.content as string;
-        const { MESSAGE_LIMITS } = await import("../types.js");
-        if (content.length > MESSAGE_LIMITS.maxContentLength) {
-          return `Blocked: Message content too long (${content.length} > ${MESSAGE_LIMITS.maxContentLength} bytes)`;
-        }
-        const result = await ctx.social.send(
-          args.to_address as string,
-          content,
-          args.reply_to as string | undefined,
-        );
-        return `Message sent (id: ${result.id})`;
-      },
-      */
-    },
-
     // ── Model Discovery (enhanced with Phase 2.3 tier routing + pricing) ──
     {
       name: "list_models",

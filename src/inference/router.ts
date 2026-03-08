@@ -183,8 +183,9 @@ export class InferenceRouter {
     const latencyMs = Date.now() - startTime;
 
     // 7. Calculate actual cost
-    const inputTokens = response.usage?.promptTokens || 0;
-    const outputTokens = response.usage?.completionTokens || 0;
+    // UnifiedInferenceResult.usage uses inputTokens/outputTokens (not promptTokens/completionTokens)
+    const inputTokens = response.usage?.inputTokens || response.usage?.promptTokens || 0;
+    const outputTokens = response.usage?.outputTokens || response.usage?.completionTokens || 0;
     const actualCostCents = Math.ceil(
       (inputTokens / 1000) * model.costPer1kInput +
       (outputTokens / 1000) * model.costPer1kOutput,

@@ -326,7 +326,7 @@ export async function runAgentLoop(
   let loopWarningPattern: string | null = null;
   let idleToolTurns = 0;
   let writeFileCount = 0; // tracks write_file calls across turns (even interleaved with exec)
-  let lastInferenceTimestamp = 0; // Track last inference call for rate-limit cooldown
+  let lastInferenceTimestamp = Date.now(); // Seed with current time so the first call respects cooldown
   let lastInputTokenCount = 0; // Track last request's input tokens for adaptive cooldown
   let emptyResponseStreak = 0; // Track consecutive empty responses for exponential backoff
   let rateLimitStreak = 0; // Track consecutive 429s for exponential backoff
@@ -738,6 +738,7 @@ export async function runAgentLoop(
       // Reuse the tools already filtered for the system prompt — they must match
       // the tool definitions sent to the LLM to avoid "unable to access tools".
       const inferenceTools = toolsToInferenceFormat(promptTools);
+      lastInferenceTimestamp = Date.now(); // Update BEFORE call so failed attempts also apply cooldown
       const routerResult = await cascadeController.infer(
         {
           messages: messages,

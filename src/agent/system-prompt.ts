@@ -488,13 +488,19 @@ function loadSoulMd(): string | null {
 
 /**
  * Load WORKLOG.md from the automaton's state directory.
+ * Truncates to last 4000 characters if content exceeds that length.
  */
 function loadWorklog(): string | null {
   try {
     const home = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\Users\\default" : "/root");
     const worklogPath = path.join(home, ".automaton", "WORKLOG.md");
     if (fs.existsSync(worklogPath)) {
-      return fs.readFileSync(worklogPath, "utf-8");
+      let content = fs.readFileSync(worklogPath, "utf-8");
+      const maxLength = 4000;
+      if (content.length > maxLength) {
+        content = "[TRUNCATED] " + content.slice(-maxLength);
+      }
+      return content;
     }
   } catch {
     // Ignore errors

@@ -872,11 +872,11 @@ export interface TokenBudget {
 }
 
 export const DEFAULT_TOKEN_BUDGET: TokenBudget = {
-  total: 10_000,
-  systemPrompt: 2_000,
-  recentTurns: 5_000,
-  toolResults: 2_000,
-  memoryRetrieval: 1_000,
+  total: 32_000,         // Safe working budget for Mistral 131K context
+  systemPrompt: 8_000,   // Realistic for full system prompt with SOUL.md
+  recentTurns: 16_000,   // Conversation history
+  toolResults: 5_000,    // Per-turn tool results
+  memoryRetrieval: 3_000, // Memory block
 };
 
 // ─── Phase 1: Runtime Reliability ───────────────────────────────
