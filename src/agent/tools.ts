@@ -111,9 +111,7 @@ function startCloudflaredTunnel(port: number): Promise<string> {
 // Tools whose results come from external sources and need sanitization
 const EXTERNAL_SOURCE_TOOLS = new Set([
   "exec",
-  "web_fetch",
   "web_search",
-  "check_social_inbox",
 ]);
 
 // ─── Self-Preservation Guard ───────────────────────────────────
@@ -160,7 +158,7 @@ const FORBIDDEN_COMMAND_PATTERNS = [
   /\bping\s+(-n\s+\d+\s+)?127\.0\.0\.1\b/i,
   /\bping\s+(-n\s+\d+\s+)?localhost\b/i,
   /\bStart-Sleep\b/i,
-  /\bsleep\s+\d+/,
+  /\bsleep\s+[1-9]\d{1,}/,  // sleep 10+ seconds only — allows sleep 1..9 for health-poll idioms
 ];
 
 function isForbiddenCommand(command: string, sandboxId: string): string | null {
@@ -1027,11 +1025,37 @@ Model: ${ctx.inference.getDefaultModel()}
         }
 
         const { ulid } = await import("ulid");
+        // Parse config and validate command before persisting.
+        // config.command is executed verbatim by createInstalledToolExecutor on
+        // every subsequent turn, so we must reject anything that is not a safe
+        // bare executable path before it ever touches the database.
+        const parsedConfig: Record<string, unknown> = args.config
+          ? JSON.parse(args.config as string)
+          : {};
+
+        if (parsedConfig.command !== undefined) {
+          const cmd = parsedConfig.command;
+          if (typeof cmd !== "string") {
+            return `Blocked: config.command must be a string, got ${typeof cmd}`;
+          }
+          // Allow only safe executable paths: alphanumeric, hyphens, underscores,
+          // dots, and forward/back slashes for path segments. No spaces, no shell
+          // metacharacters (;&|><$`!?*{}[]()~), no percent-encoding tricks.
+          if (!/^[a-zA-Z0-9._\-/\\]+$/.test(cmd)) {
+            return `Blocked: config.command "${cmd}" contains disallowed characters. Only alphanumeric characters, hyphens, underscores, dots, and path separators are permitted.`;
+          }
+          // Also run through the self-harm pattern guard as a second layer.
+          const forbidden = isForbiddenCommand(cmd, ctx.identity.sandboxId);
+          if (forbidden) {
+            return `Blocked: config.command rejected by safety guard — ${forbidden}`;
+          }
+        }
+
         const toolEntry = {
           id: ulid(),
           name: args.name as string,
           type: "mcp" as const,
-          config: args.config ? JSON.parse(args.config as string) : {},
+          config: parsedConfig,
           installedAt: new Date().toISOString(),
           enabled: true,
         };
@@ -3305,6 +3329,19 @@ function createInstalledToolExecutor(tool: {
     // Generic installed tool — execute via sandbox shell if command is configured
     const command = tool.config?.command as string | undefined;
     if (command) {
+      // Guard 1: structural — command must be a bare executable path with no
+      // shell metacharacters. This catches tampered DB records that bypassed the
+      // install_mcp_server validation (e.g. direct DB writes, pre-fix installs).
+      if (typeof command !== "string" || !/^[a-zA-Z0-9._\-/\\]+$/.test(command)) {
+        logger.error(`Installed tool blocked: config.command contains disallowed characters (tool: ${tool.name})`);
+        return `Blocked: installed tool "${tool.name}" has an unsafe command configured and cannot be executed.`;
+      }
+      // Guard 2: semantic — reject commands matching self-harm/credential-harvesting patterns.
+      const forbidden = isForbiddenCommand(command, ctx.identity.sandboxId);
+      if (forbidden) {
+        logger.error(`Installed tool blocked by safety guard (tool: ${tool.name}, reason: ${forbidden})`);
+        return `Blocked: installed tool "${tool.name}" command rejected by safety guard.`;
+      }
       const result = await ctx.conway.exec(
         `${command} ${escapeShellArg(JSON.stringify(args))}`,
         30000,

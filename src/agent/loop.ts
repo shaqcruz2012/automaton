@@ -538,8 +538,10 @@ export async function runAgentLoop(
         const lastTurn = sessionTurns[sessionTurns.length - 1];
         const hasToolResults = lastTurn.toolCalls.length > 0;
         if (hasToolResults) {
-          // Build a compact summary of tool calls already made THIS session
-          const completedActions = sessionTurns
+          // Build a compact summary of tool calls already made THIS session.
+          // Cap to last 3 turns to avoid unbounded token growth in the nudge.
+          const recentSessionTurns = sessionTurns.slice(-3);
+          const completedActions = recentSessionTurns
             .flatMap((t) => t.toolCalls)
             .map((tc) => {
               const argStr = JSON.stringify(tc.arguments ?? {});
@@ -624,9 +626,17 @@ export async function runAgentLoop(
       // Block sleep until the healthcheck has actually run this session.
       // Without this, the agent_turn model sees "all healthy" from stale status
       // and calls sleep immediately, skipping the entire WORKLOG protocol.
-      // Once exec has been called (healthcheck), sleep is re-enabled.
+      // Only unlock sleep after a healthcheck-like exec (not any arbitrary exec).
       const healthcheckRan = sessionTurns.some((t) =>
-        t.toolCalls.some((tc) => tc.name === "exec"),
+        t.toolCalls.some((tc) => {
+          if (tc.name !== "exec") return false;
+          const cmd = String(tc.arguments?.command ?? "");
+          return (
+            /health/i.test(cmd) ||
+            /curl\s+.*localhost[:/]/i.test(cmd) ||
+            /curl\s+.*127\.0\.0\.1[:/]/i.test(cmd)
+          );
+        }),
       );
       if (!healthcheckRan && earlyTaskType !== "heartbeat_triage") {
         promptTools = promptTools.filter((t) => t.name !== "sleep");
@@ -1104,6 +1114,7 @@ export async function runAgentLoop(
           db.setAgentState("sleeping");
           onStateChange?.("sleeping");
           running = false;
+          break;
         }
       } else {
         idleTurnCount = 0;
@@ -1404,9 +1415,11 @@ function detectTaskType(
     return "heartbeat_triage";
   }
 
-  // System-injected loop warnings and maintenance messages
+  // System-injected loop warnings and maintenance messages need full tools
+  // to recover. heartbeat_triage would strip tools to read_file only,
+  // making the "pick the NEXT task" directive impossible to follow.
   if (source === "system" && (input.includes("loop detected") || input.includes("loop enforcement") || input.includes("maintenance loop"))) {
-    return "heartbeat_triage";
+    return "agent_turn";
   }
 
   // If recent turns are all idle/status checks, this is orientation

@@ -326,7 +326,13 @@ export class UnifiedInferenceClient {
         description: tool.function.description,
         input_schema: tool.function.parameters,
       }));
-      body.tool_choice = { type: "auto" };
+      // Respect the caller's tool_choice. Anthropic uses { type: "auto" | "any" | "tool" }
+      // where "any" is the equivalent of OpenAI's "required".
+      if (params.toolChoice === "required") {
+        body.tool_choice = { type: "any" };
+      } else {
+        body.tool_choice = { type: "auto" };
+      }
     }
 
     const resp = await fetch("https://api.anthropic.com/v1/messages", {

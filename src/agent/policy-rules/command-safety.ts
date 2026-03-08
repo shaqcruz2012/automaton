@@ -73,6 +73,12 @@ const FORBIDDEN_COMMAND_PATTERNS: { pattern: RegExp; description: string }[] = [
   { pattern: /sed\s+.*policy-rules/, description: "Modify policy rules via sed" },
   { pattern: />\s*.*policy-engine/, description: "Overwrite policy engine" },
   { pattern: />\s*.*policy-rules/, description: "Overwrite policy rules" },
+  // Sleep workarounds: block exec-based delays that bypass the sleep tool
+  { pattern: /\btimeout\s+\/t\b/i, description: "Sleep workaround via timeout /t" },
+  { pattern: /\bping\s+(-n\s+\d+\s+)?127\.0\.0\.1\b/i, description: "Sleep workaround via ping loopback" },
+  { pattern: /\bping\s+(-n\s+\d+\s+)?localhost\b/i, description: "Sleep workaround via ping localhost" },
+  { pattern: /\bStart-Sleep\b/i, description: "Sleep workaround via PowerShell Start-Sleep" },
+  { pattern: /\bsleep\s+[1-9]\d{1,}/, description: "Sleep workaround via bash sleep 10+ seconds" },
 ];
 
 function deny(rule: string, reasonCode: string, humanMessage: string): PolicyRuleResult {

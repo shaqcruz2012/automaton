@@ -33,6 +33,7 @@ function sanitizeToolCallId(id: string | undefined): string {
   // Using the first 9 caused collisions: all "text-parsed-..." IDs
   // start with "textparse", producing identical sanitized IDs.
   if (clean.length >= 9) return clean.slice(-9);
+  if (clean.length === 0) return Math.random().toString(36).slice(2, 11).padEnd(9, "0");
   return clean.padEnd(9, "0");
 }
 
@@ -157,7 +158,7 @@ export function buildContextMessages(
       const tools = t.toolCalls
         .map((tc) => `${tc.name}(${tc.error ? "FAILED" : "ok"})`)
         .join(", ");
-      return `[${t.timestamp}] ${t.inputSource || "self"}: ${t.thinking.slice(0, 100)}${tools ? ` | tools: ${tools}` : ""}`;
+      return `[${t.timestamp}] ${t.inputSource || "self"}: ${(t.thinking ?? "").slice(0, 100)}${tools ? ` | tools: ${tools}` : ""}`;
     });
     summaryMessage = `Previous context summary (${oldTurns.length} turns compressed):\n${oldSummaries.join("\n")}`;
   } else {
@@ -315,7 +316,7 @@ export async function summarizeTurns(
     const tools = t.toolCalls
       .map((tc) => `${tc.name}(${tc.error ? "FAILED" : "ok"})`)
       .join(", ");
-    return `[${t.timestamp}] ${t.inputSource || "self"}: ${t.thinking.slice(0, 100)}${tools ? ` | tools: ${tools}` : ""}`;
+    return `[${t.timestamp}] ${t.inputSource || "self"}: ${(t.thinking ?? "").slice(0, 100)}${tools ? ` | tools: ${tools}` : ""}`;
   });
 
   // If few enough turns, just return the summaries directly

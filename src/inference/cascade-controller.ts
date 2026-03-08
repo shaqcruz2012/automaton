@@ -30,11 +30,35 @@ type Database = BetterSqlite3.Database;
 
 const logger = createLogger("cascade");
 
+/**
+ * Detect message-format / validation 400 errors that are worth cascading.
+ * These typically come from providers rejecting the message structure
+ * (e.g., Mistral: "Expected last role User or Tool but got assistant").
+ * Auth errors (invalid API key) should NOT cascade — they'll fail everywhere.
+ */
+function isCascadable400(errMsg: string): boolean {
+  if (!/\b400\b/.test(errMsg)) return false;
+  // Only cascade on message-format / validation errors, NOT auth issues
+  const validationPatterns = /role|message|format|expected|invalid.*content|validation|schema|field|parameter/i;
+  const authPatterns = /api.key|auth|token|credential|unauthorized|forbidden/i;
+  return validationPatterns.test(errMsg) && !authPatterns.test(errMsg);
+}
+
 /** Cache P&L for 5 minutes to avoid constant DB queries */
 const PNL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /** Timeout for direct provider calls */
 const PROVIDER_TIMEOUT_MS = 60_000;
+
+/** Circuit breaker: disable provider after this many consecutive failures */
+const CB_FAILURE_THRESHOLD = 5;
+/** Circuit breaker: keep provider disabled for this long */
+const CB_DISABLE_MS = 5 * 60_000;
+
+interface CircuitBreakerState {
+  failures: number;
+  disabledUntil: number;
+}
 
 interface PnlCache {
   netCents: number;
@@ -152,9 +176,36 @@ async function callProviderDirect(
 export class CascadeController {
   private db: Database;
   private pnlCache: PnlCache | null = null;
+  private readonly circuitBreaker = new Map<string, CircuitBreakerState>();
 
   constructor(db: Database) {
     this.db = db;
+  }
+
+  /** Check if a provider's circuit breaker is open (temporarily disabled). */
+  private isCircuitOpen(providerId: string): boolean {
+    const state = this.circuitBreaker.get(providerId);
+    if (!state) return false;
+    if (state.disabledUntil > Date.now()) return true;
+    // Expired — reset
+    this.circuitBreaker.set(providerId, { failures: 0, disabledUntil: 0 });
+    return false;
+  }
+
+  /** Record a failure. Opens circuit after CB_FAILURE_THRESHOLD consecutive failures. */
+  private recordFailure(providerId: string): void {
+    const state = this.circuitBreaker.get(providerId) ?? { failures: 0, disabledUntil: 0 };
+    state.failures += 1;
+    if (state.failures >= CB_FAILURE_THRESHOLD) {
+      state.disabledUntil = Date.now() + CB_DISABLE_MS;
+      logger.warn(`Cascade: circuit breaker OPEN for ${providerId} (${state.failures} failures, disabled for ${CB_DISABLE_MS / 1000}s)`);
+    }
+    this.circuitBreaker.set(providerId, state);
+  }
+
+  /** Record a success. Resets the circuit breaker for this provider. */
+  private recordSuccess(providerId: string): void {
+    this.circuitBreaker.set(providerId, { failures: 0, disabledUntil: 0 });
   }
 
   /**
@@ -223,6 +274,12 @@ export class CascadeController {
     let lastError: Error | null = null;
 
     for (const provider of providers) {
+      // Circuit breaker: skip providers that have failed too many times recently
+      if (this.isCircuitOpen(provider.id)) {
+        logger.debug(`Cascade: skipping ${provider.id} (circuit breaker open)`);
+        continue;
+      }
+
       // Check if API key is available for this provider
       const apiKey = process.env[provider.apiKeyEnvVar];
       if (!apiKey) {
@@ -260,11 +317,14 @@ export class CascadeController {
           toolChoice,
         );
         logger.info(`Cascade: ${provider.id} succeeded (${result.inputTokens}+${result.outputTokens} tokens, ${result.latencyMs}ms)`);
+        this.recordSuccess(provider.id);
         return result;
       } catch (error: any) {
         const errMsg = error?.message ?? String(error);
-        const isRetryable = /429|413|500|503|rate.limit|timeout/i.test(errMsg);
+        const isRetryable = /429|413|500|503|rate.limit|timeout/i.test(errMsg)
+          || isCascadable400(errMsg);
         logger.warn(`Cascade: ${provider.id} failed: ${errMsg.slice(0, 200)}`);
+        this.recordFailure(provider.id);
         lastError = error;
 
         if (!isRetryable) {
@@ -322,7 +382,8 @@ export class CascadeController {
         return result;
       } catch (error: any) {
         const errMsg = error?.message ?? String(error);
-        const isRetryable = /429|413|500|503|rate.limit|timeout|exhausted|No providers/i.test(errMsg);
+        const isRetryable = /429|413|500|503|rate.limit|timeout|exhausted|No providers/i.test(errMsg)
+          || isCascadable400(errMsg);
 
         if (isRetryable) {
           const next = getNextPool(currentPool);
