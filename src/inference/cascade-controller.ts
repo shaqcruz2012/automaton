@@ -226,8 +226,12 @@ export class CascadeController {
     const state = this.circuitBreaker.get(providerId);
     if (!state) return false;
     if (state.disabledUntil > Date.now()) return true;
-    // Expired — reset
-    this.circuitBreaker.set(providerId, { failures: 0, disabledUntil: 0 });
+    // Only reset if the breaker was actually opened and has now expired.
+    // When disabledUntil is 0, the breaker was never opened — don't erase
+    // accumulated failures, or the threshold can never be reached.
+    if (state.disabledUntil > 0) {
+      this.circuitBreaker.set(providerId, { failures: 0, disabledUntil: 0 });
+    }
     return false;
   }
 
@@ -393,6 +397,7 @@ export class CascadeController {
     inferenceChat: (messages: any[], options: any) => Promise<any>,
   ): Promise<InferenceResult> {
     let currentPool: CascadePool | null = this.selectPool(request.tier);
+    let lastErrorMsg = "";
 
     while (currentPool) {
       const poolProviders = getProvidersForPool(currentPool);
@@ -421,6 +426,7 @@ export class CascadeController {
         return result;
       } catch (error: any) {
         const errMsg = error?.message ?? String(error);
+        lastErrorMsg = errMsg;
         const isRetryable = /429|413|500|503|rate.limit|timeout|exhausted|No providers/i.test(errMsg)
           || isCascadable400(errMsg);
 
@@ -438,7 +444,11 @@ export class CascadeController {
       }
     }
 
-    throw new CascadeExhaustedError("All inference pools exhausted");
+    // Preserve the underlying error (e.g., "429: Rate limit exceeded") in the
+    // message so the loop's rate-limit handler can detect it and apply backoff.
+    throw new CascadeExhaustedError(
+      `All inference pools exhausted${lastErrorMsg ? ` (${lastErrorMsg.slice(0, 200)})` : ""}`,
+    );
   }
 
   /** Clear the P&L cache (useful for testing) */
