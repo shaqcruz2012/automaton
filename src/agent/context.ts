@@ -145,9 +145,9 @@ export function buildContextMessages(
       if (i === 0) splitIndex = 0;
     }
 
-    // Ensure we always summarize at least something
-    if (splitIndex === 0) splitIndex = 1;
-    if (splitIndex >= recentTurns.length) splitIndex = Math.max(1, recentTurns.length - 1);
+    // Ensure we always keep at least the most recent turn for rendering,
+    // and always summarize at least one old turn.
+    splitIndex = Math.max(1, Math.min(splitIndex, recentTurns.length - 1));
 
     const oldTurns = recentTurns.slice(0, splitIndex);
     turnsToRender = recentTurns.slice(splitIndex);

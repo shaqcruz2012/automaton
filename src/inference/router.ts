@@ -91,7 +91,8 @@ export class InferenceRouter {
     const { messages, taskType, tier, sessionId, turnId, tools } = request;
 
     // 2. Estimate cost and check budget
-    const estimatedTokens = messages.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
+    // Use char/3 for conservative estimate (code/JSON is denser than prose)
+    const estimatedTokens = messages.reduce((sum, m) => sum + (m.content?.length || 0) / 3, 0);
     // costPer1kInput is already in hundredths-of-cent per 1k tokens.
     // No /100 needed — that was double-dividing, making costs 100x too small.
     const estimatedCostCents = Math.ceil(
@@ -368,13 +369,17 @@ export class InferenceRouter {
     for (const msg of messages) {
       const last = result[result.length - 1];
       if (last && last.role === msg.role && msg.role !== "system" && msg.role !== "tool") {
-        last.content = (last.content || "") + "\n" + (msg.content || "");
-        if (msg.tool_calls) {
-          last.tool_calls = [...(last.tool_calls || []), ...msg.tool_calls];
-        }
+        // Replace last element with a new merged object (immutable)
+        result[result.length - 1] = {
+          ...last,
+          content: (last.content || "") + "\n" + (msg.content || ""),
+          tool_calls: msg.tool_calls
+            ? [...(last.tool_calls || []), ...msg.tool_calls.map(tc => ({ ...tc }))]
+            : last.tool_calls,
+        };
         continue;
       }
-      result.push({ ...msg });
+      result.push({ ...msg, tool_calls: msg.tool_calls?.map(tc => ({ ...tc })) });
     }
 
     return result;

@@ -940,7 +940,7 @@ export async function runAgentLoop(
 
       // Fix 8: Context compression — periodically compress conversation history
       // to prevent context window overflow. Runs every 3 turns for budget efficiency.
-      if (compressionEngine && contextManager && cycleTurnCount % 3 === 0) {
+      if (compressionEngine && contextManager && cycleTurnCount > 0 && cycleTurnCount % 3 === 0) {
         try {
           const utilization = contextManager.getUtilization();
           if (utilization.utilizationPercent > 0.7) {
@@ -1082,6 +1082,9 @@ export async function runAgentLoop(
             };
             writeFileCount = 0;
           }
+        } else {
+          // Reset counter when a non-write turn breaks the streak
+          writeFileCount = 0;
         }
       }
 
@@ -1278,8 +1281,10 @@ async function getFinancialState(
     if (result.ok) {
       creditsCents = result.balanceCents;
       usdcBalance = result.balanceUsd;
-      if (creditsCents > 0) _lastKnownCredits = creditsCents;
-      if (usdcBalance > 0) _lastKnownUsdc = usdcBalance;
+      // Always update cache on successful fetch — even if balance is zero.
+      // The old `> 0` guard would mask genuine zero balances.
+      _lastKnownCredits = creditsCents;
+      _lastKnownUsdc = usdcBalance;
     } else {
       throw new Error(result.error || "Balance fetch failed");
     }

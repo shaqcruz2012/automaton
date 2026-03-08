@@ -150,7 +150,9 @@ async function callProviderDirect(
       ? rawContent.map((p: any) => p.text ?? p.content ?? "").join("")
       : String(rawContent ?? "");
   const toolCalls = choice?.message?.tool_calls?.map((tc: any) => ({
-    id: tc.id,
+    id: typeof tc.id === "string" && tc.id.length < 9
+      ? tc.id.replace(/[^a-zA-Z0-9]/g, "").padEnd(9, "0")
+      : tc.id,
     type: tc.type,
     function: {
       name: tc.function?.name,

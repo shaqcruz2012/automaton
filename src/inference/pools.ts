@@ -14,11 +14,12 @@ export const POOL_CASCADE_ORDER: CascadePool[] = ["paid", "free_cloud", "local"]
 
 /**
  * Return providers belonging to a specific pool.
- * Filters the DEFAULT_PROVIDERS array by the `pool` field.
+ * Filters the provided providers array (or DEFAULT_PROVIDERS if not provided) by the `pool` field.
  * Providers without a pool field are assigned to "paid" by default.
  */
-export function getProvidersForPool(pool: CascadePool): ProviderConfig[] {
-  return DEFAULT_PROVIDERS.filter((p) => {
+export function getProvidersForPool(pool: CascadePool, providers?: ProviderConfig[]): ProviderConfig[] {
+  const source = providers ?? DEFAULT_PROVIDERS;
+  return source.filter((p) => {
     const providerPool = p.pool ?? "paid";
     return providerPool === pool && p.enabled;
   });

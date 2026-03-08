@@ -956,6 +956,11 @@ Model: ${ctx.inference.getDefaultModel()}
         const { ulid } = await import("ulid");
         const newPrompt = args.new_prompt as string;
 
+        // Validate non-empty input
+        if (!newPrompt || !newPrompt.trim()) {
+          return "Error: new_prompt cannot be empty";
+        }
+
         // Sanitize genesis prompt content
         const sanitized = sanitizeInput(
           newPrompt,
