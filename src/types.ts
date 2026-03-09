@@ -864,19 +864,19 @@ export const MAX_CHILDREN = 3;
 // ─── Token Budget ───────────────────────────────────────────────
 
 export interface TokenBudget {
-  total: number;                     // default: 60_000
-  systemPrompt: number;             // default: 12_000 (20%)
-  recentTurns: number;              // default: 30_000 (50%)
-  toolResults: number;              // default: 10_000 (17%)
-  memoryRetrieval: number;          // default: 8_000  (13%)
+  total: number;                     // default: 6_000
+  systemPrompt: number;              // default: 2_500
+  recentTurns: number;               // default: 2_000
+  toolResults: number;               // default: 1_000
+  memoryRetrieval: number;           // default: 500
 }
 
 export const DEFAULT_TOKEN_BUDGET: TokenBudget = {
-  total: 32_000,         // Safe working budget for Mistral 131K context
-  systemPrompt: 8_000,   // Realistic for full system prompt with SOUL.md
-  recentTurns: 16_000,   // Conversation history
-  toolResults: 5_000,    // Per-turn tool results
-  memoryRetrieval: 3_000, // Memory block
+  total: 6_000,          // Conservative budget for Llama 3.2 3B with 8K context
+  systemPrompt: 2_500,   // Trimmed system prompt for 3B model
+  recentTurns: 2_000,    // Keep last 1-2 turns only
+  toolResults: 1_000,    // Aggressive truncation for tool results
+  memoryRetrieval: 500,  // Minimal memory block
 };
 
 // ─── Phase 1: Runtime Reliability ───────────────────────────────
@@ -1135,11 +1135,11 @@ export interface MemoryBudget {
 }
 
 export const DEFAULT_MEMORY_BUDGET: MemoryBudget = {
-  workingMemoryTokens: 1500,
-  episodicMemoryTokens: 3000,
-  semanticMemoryTokens: 3000,
-  proceduralMemoryTokens: 1500,
-  relationshipMemoryTokens: 1000,
+  workingMemoryTokens: 150,   // Trimmed for 3B local model (500 total budget)
+  episodicMemoryTokens: 150,
+  semanticMemoryTokens: 100,
+  proceduralMemoryTokens: 50,
+  relationshipMemoryTokens: 50,
 };
 
 // === Phase 2.3: Inference & Model Strategy Types ===

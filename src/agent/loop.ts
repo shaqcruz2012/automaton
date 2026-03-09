@@ -51,7 +51,7 @@ import { ulid } from "ulid";
 import { ModelRegistry } from "../inference/registry.js";
 import { InferenceBudgetTracker } from "../inference/budget.js";
 import { InferenceRouter } from "../inference/router.js";
-import { CascadeController } from "../inference/cascade-controller.js";
+import { CascadeController, CascadeExhaustedError } from "../inference/cascade-controller.js";
 import { MemoryRetriever } from "../memory/retrieval.js";
 import { MemoryIngestionPipeline } from "../memory/ingestion.js";
 import { DEFAULT_MEMORY_BUDGET } from "../types.js";
@@ -1184,6 +1184,33 @@ export async function runAgentLoop(
         log(config, `[RATE_LIMIT] Circuit breaker open. Waiting ${Math.ceil(waitMs / 1000)}s for it to clear...`);
         await new Promise((resolve) => setTimeout(resolve, waitMs + 1_000));
         // Do NOT increment consecutiveErrors — this is expected transient behavior
+        continue;
+      }
+
+      // ── Cascade exhausted (all pools failed) ──
+      // When every provider pool has been tried and failed (429, 500, etc.),
+      // the CascadeController throws CascadeExhaustedError. This is transient —
+      // providers will recover. Apply rate-limit-style backoff with a 30s floor.
+      if (err instanceof CascadeExhaustedError) {
+        rateLimitStreak++;
+        const backoffMs = Math.max(30_000, Math.min(60_000 * Math.pow(2, rateLimitStreak - 1), 300_000));
+        log(config, `[CASCADE_EXHAUSTED] All pools exhausted. Waiting ${Math.ceil(backoffMs / 1000)}s before retry.`);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        // Do NOT increment consecutiveErrors — cascade exhaustion is transient
+        continue;
+      }
+
+      // ── Ollama infrastructure errors ──
+      // Ollama not running (ECONNREFUSED/ECONNRESET/ENOTFOUND) or OOM.
+      // Wait and retry — these are transient, not permanent failures.
+      const isOllamaInfra = /ECONNREFUSED|ECONNRESET|ENOTFOUND/i.test(errMsg);
+      const isOllamaOOM = /system memory|out of memory/i.test(errMsg);
+      if (isOllamaInfra || isOllamaOOM) {
+        const waitMs = isOllamaOOM ? 60_000 : 30_000;
+        const reason = isOllamaOOM ? "Ollama OOM" : "Ollama not running";
+        logger.warn(`[OLLAMA] ${reason}. Waiting ${waitMs / 1000}s before retry...`);
+        await new Promise((r) => setTimeout(r, waitMs));
+        consecutiveErrors++;
         continue;
       }
 

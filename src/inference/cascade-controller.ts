@@ -4,12 +4,12 @@
  * Sits above the InferenceRouter and decides which provider pool to use
  * based on the agent's profitability and survival tier.
  *
- * Pool cascade: PAID -> FREE_CLOUD -> LOCAL
+ * Pool cascade: LOCAL -> FREE_CLOUD -> PAID
  *
  * Decision logic:
- * - critical/dead/low_compute tier -> always FREE_CLOUD (hard floor)
+ * - critical/dead/low_compute tier -> always LOCAL (local-first)
  * - normal/high tier + profitable -> PAID
- * - normal/high tier + unprofitable -> FREE_CLOUD
+ * - normal/high tier + unprofitable -> LOCAL
  * - On pool exhaustion (all providers 429/500) -> cascade to next pool
  *
  * For the PAID pool: delegates to the InferenceRouter (which knows about
@@ -151,6 +151,12 @@ async function callProviderDirect(
     stream: false,
   };
 
+  // Ollama defaults to 2048 context tokens unless num_ctx is explicitly set.
+  // Pass the model's full contextWindow so Ollama actually uses it.
+  if (provider.pool === "local" && model.contextWindow) {
+    body.options = { num_ctx: model.contextWindow };
+  }
+
   if (tools && tools.length > 0) {
     body.tools = tools;
     body.tool_choice = toolChoice;
@@ -186,16 +192,30 @@ async function callProviderDirect(
     : Array.isArray(rawContent)
       ? rawContent.map((p: any) => p.text ?? p.content ?? "").join("")
       : String(rawContent ?? "");
-  const toolCalls = choice?.message?.tool_calls?.map((tc: any) => ({
-    id: typeof tc.id === "string" && tc.id.length < 9
-      ? tc.id.replace(/[^a-zA-Z0-9]/g, "").padEnd(9, "0")
-      : tc.id,
-    type: tc.type,
-    function: {
-      name: tc.function?.name,
-      arguments: tc.function?.arguments,
-    },
-  }));
+  const toolCalls = choice?.message?.tool_calls?.map((tc: any) => {
+    // Ollama may return undefined/null tool call IDs for some models.
+    // Generate a random ID as fallback so downstream code always has one.
+    const id = tc.id
+      ? (typeof tc.id === "string" && tc.id.length < 9
+        ? tc.id.replace(/[^a-zA-Z0-9]/g, "").padEnd(9, "0")
+        : tc.id)
+      : "call_" + Math.random().toString(36).slice(2, 11);
+
+    // Ollama may return function.arguments as an object instead of a string.
+    const rawArgs = tc.function?.arguments;
+    const args = typeof rawArgs === "object" && rawArgs !== null
+      ? JSON.stringify(rawArgs)
+      : rawArgs;
+
+    return {
+      id,
+      type: tc.type,
+      function: {
+        name: tc.function?.name,
+        arguments: args,
+      },
+    };
+  });
   const finishReason = choice?.finish_reason ?? "stop";
   const usage = json.usage ?? {};
 
@@ -216,6 +236,9 @@ export class CascadeController {
   private db: Database;
   private pnlCache: PnlCache | null = null;
   private readonly circuitBreaker = new Map<string, CircuitBreakerState>();
+  /** Tracks the last call timestamp per provider for rate limit enforcement.
+   *  In-memory only — resets on process restart (same as circuit breaker). */
+  private readonly lastCallTimestamp = new Map<string, number>();
 
   constructor(db: Database) {
     this.db = db;
@@ -289,9 +312,9 @@ export class CascadeController {
    * Select the starting pool based on survival tier and profitability.
    */
   selectPool(tier: SurvivalTier): CascadePool {
-    // Hard floor: low tiers always use free models
+    // Hard floor: low tiers always use local models (no rate limits, no cost)
     if (tier === "dead" || tier === "critical" || tier === "low_compute") {
-      return "free_cloud";
+      return "local";
     }
 
     // Profit-margin check for normal/high tiers
@@ -301,8 +324,8 @@ export class CascadeController {
       return "paid";
     }
 
-    logger.debug(`Cascade: unprofitable (net ${pnl.netCents}c) -> FREE_CLOUD pool`);
-    return "free_cloud";
+    logger.debug(`Cascade: unprofitable (net ${pnl.netCents}c) -> LOCAL pool`);
+    return "local";
   }
 
   /**
@@ -323,11 +346,27 @@ export class CascadeController {
         continue;
       }
 
-      // Check if API key is available for this provider
+      // Check if API key is available for this provider.
+      // Local providers (Ollama/vLLM) don't need an API key.
       const apiKey = process.env[provider.apiKeyEnvVar];
-      if (!apiKey) {
+      if (!apiKey && provider.pool !== "local") {
         logger.debug(`Cascade: skipping ${provider.id} (no API key: ${provider.apiKeyEnvVar})`);
         continue;
+      }
+
+      // Rate limit: enforce minimum interval between calls per provider.
+      // For Mistral at 2 RPM this means 30s between calls; for Ollama at 100 RPM, 600ms.
+      // This prevents us from hitting server-side 429s proactively.
+      if (provider.maxRequestsPerMinute > 0) {
+        const minIntervalMs = 60_000 / provider.maxRequestsPerMinute;
+        const lastCall = this.lastCallTimestamp.get(provider.id) ?? 0;
+        const elapsed = Date.now() - lastCall;
+        if (elapsed < minIntervalMs) {
+          logger.debug(
+            `Cascade: skipping ${provider.id} (rate limit: ${Math.ceil(minIntervalMs - elapsed)}ms until next allowed call)`,
+          );
+          continue;
+        }
       }
 
       const model = pickModel(provider, request.taskType);
@@ -347,6 +386,9 @@ export class CascadeController {
           ? "required" as const
           : "auto" as const;
         logger.info(`Cascade: trying ${provider.id} (${model.id})`);
+        // Record call timestamp BEFORE the call (not after) so concurrent
+        // requests don't both slip through the rate window.
+        this.lastCallTimestamp.set(provider.id, Date.now());
         // Use the model's registered maxOutputTokens (e.g. 8192 for magistral)
         // instead of hardcoded 4096. Reasoning models need room for chain-of-thought
         // BEFORE emitting tool calls — 4096 caused finish_reason: "length" truncation.
@@ -367,6 +409,16 @@ export class CascadeController {
         const isRetryable = /429|413|500|503|rate.limit|timeout/i.test(errMsg)
           || isCascadable400(errMsg);
         logger.warn(`Cascade: ${provider.id} failed: ${errMsg.slice(0, 200)}`);
+
+        // Ollama-specific: connection refused or OOM are infrastructure issues,
+        // not provider failures. Don't circuit-break — just cascade immediately.
+        const isInfraError = /ECONNREFUSED|ECONNRESET|ENOTFOUND|system memory/i.test(errMsg);
+        if (isInfraError) {
+          logger.warn(`Cascade: ${provider.id} infrastructure error (not circuit-breaking): ${errMsg.slice(0, 200)}`);
+          lastError = error;
+          continue;
+        }
+
         this.recordFailure(provider.id);
         lastError = error;
 
@@ -396,10 +448,13 @@ export class CascadeController {
     router: InferenceRouter,
     inferenceChat: (messages: any[], options: any) => Promise<any>,
   ): Promise<InferenceResult> {
-    let currentPool: CascadePool | null = this.selectPool(request.tier);
+    const startingPool = this.selectPool(request.tier);
+    let currentPool: CascadePool | null = startingPool;
     let lastErrorMsg = "";
+    const triedPools = new Set<CascadePool>();
 
     while (currentPool) {
+      triedPools.add(currentPool);
       const poolProviders = getProvidersForPool(currentPool);
       if (poolProviders.length === 0) {
         logger.warn(`Cascade: pool ${currentPool} has no enabled providers, skipping`);
@@ -435,6 +490,13 @@ export class CascadeController {
           if (next) {
             logger.warn(`Cascade: ${currentPool} pool exhausted (${errMsg.slice(0, 200)}), falling back to ${next}`);
             currentPool = next;
+            continue;
+          }
+          // End of cascade chain — try LOCAL as last resort if not already tried.
+          // This covers the case where PAID is the terminal pool but Ollama is available.
+          if (!triedPools.has("local")) {
+            logger.warn(`Cascade: ${currentPool} pool exhausted, last-resort fallback to LOCAL`);
+            currentPool = "local";
             continue;
           }
         }

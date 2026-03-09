@@ -10,7 +10,7 @@ import type { CascadePool } from "../types.js";
 import { DEFAULT_PROVIDERS, type ProviderConfig } from "./provider-registry.js";
 
 /** The order in which pools are tried when the current pool is exhausted */
-export const POOL_CASCADE_ORDER: CascadePool[] = ["paid", "free_cloud", "local"];
+export const POOL_CASCADE_ORDER: CascadePool[] = ["local", "free_cloud", "paid"];
 
 /**
  * Return providers belonging to a specific pool.
