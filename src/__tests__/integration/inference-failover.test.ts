@@ -149,6 +149,12 @@ beforeEach(() => {
   process.env = { ...ORIGINAL_ENV };
   delete process.env.AUTOMATON_CREDITS_BALANCE;
   delete process.env.AUTOMATON_INFERENCE_TASK_TYPE;
+  // Provide dummy API keys for test providers so resolveApiKey() does not
+  // filter them out (the registry returns null and excludes the provider when
+  // the env var is absent).
+  process.env.ALPHA_API_KEY = "test-key";
+  process.env.BETA_API_KEY = "test-key";
+  process.env["PRICING-TEST_API_KEY"] = "test-key";
 });
 
 afterAll(() => {

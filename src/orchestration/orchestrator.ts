@@ -285,6 +285,33 @@ export class Orchestrator {
 
   async handleFailure(task: TaskNode, error: string): Promise<void> {
     failTask(this.params.db, task.id, error, true);
+
+    // Check if the task was permanently failed (no retry budget remained).
+    // If so, transition the orchestrator phase to replanning or failed.
+    const latest = getTaskById(this.params.db, task.id);
+    if (latest?.status !== "failed") {
+      // Task was retried (pending/blocked) — no phase transition needed.
+      return;
+    }
+
+    const state = this.loadState();
+    const maxReplans = this.getMaxReplans();
+
+    const newState: OrchestratorState = state.replanCount < maxReplans
+      ? {
+          ...state,
+          phase: "replanning",
+          failedTaskId: task.id,
+          failedError: error,
+        }
+      : {
+          ...state,
+          phase: "failed",
+          failedTaskId: task.id,
+          failedError: error,
+        };
+
+    this.saveState(newState);
   }
 
   private handleIdlePhase(state: OrchestratorState): OrchestratorState {

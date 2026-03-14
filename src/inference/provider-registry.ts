@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import * as fs from "node:fs";
 import OpenAI from "openai";
 
 export type ModelTier = "reasoning" | "fast" | "cheap";
