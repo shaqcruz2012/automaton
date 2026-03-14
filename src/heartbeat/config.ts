@@ -14,7 +14,7 @@ import { createLogger } from "../observability/logger.js";
 const logger = createLogger("heartbeat.config");
 
 const USDC_TOPUP_ENTRY_NAME = "check_credits";
-const USDC_TOPUP_FAST_SCHEDULE = "*/5 * * * *";
+const USDC_TOPUP_FAST_SCHEDULE = "*/10 * * * *";
 const USDC_TOPUP_OLD_SCHEDULE = "0 */12 * * *";
 
 const DEFAULT_HEARTBEAT_CONFIG: HeartbeatConfig = {
@@ -39,13 +39,13 @@ const DEFAULT_HEARTBEAT_CONFIG: HeartbeatConfig = {
     },
     {
       name: "health_check",
-      schedule: "*/30 * * * *",
+      schedule: "0 * * * *",
       task: "health_check",
       enabled: true,
     },
     {
       name: "check_social_inbox",
-      schedule: "*/2 * * * *",
+      schedule: "*/5 * * * *",
       task: "check_social_inbox",
       enabled: true,
     },
@@ -63,7 +63,7 @@ const DEFAULT_HEARTBEAT_CONFIG: HeartbeatConfig = {
     },
   ],
   defaultIntervalMs: 60_000,
-  lowComputeMultiplier: 4,
+  lowComputeMultiplier: 2,
 };
 
 /**
@@ -81,13 +81,21 @@ export function loadHeartbeatConfig(configPath?: string): HeartbeatConfig {
     const raw = fs.readFileSync(filePath, "utf-8");
     const parsed = YAML.parse(raw) || {};
 
-    const parsedEntries = (parsed.entries || []).map((e: any) => ({
-      name: e.name,
-      schedule: e.schedule,
-      task: e.task,
-      enabled: e.enabled !== false,
-      params: e.params,
-    })) as HeartbeatEntry[];
+    const rawEntries = Array.isArray(parsed.entries) ? parsed.entries : [];
+    const parsedEntries = rawEntries
+      .filter(
+        (e: any) =>
+          typeof e?.name === "string" &&
+          typeof e?.schedule === "string" &&
+          typeof e?.task === "string",
+      )
+      .map((e: any) => ({
+        name: e.name,
+        schedule: e.schedule,
+        task: e.task,
+        enabled: e.enabled !== false,
+        params: e.params,
+      })) as HeartbeatEntry[];
 
     const entries = mergeWithDefaults(parsedEntries);
 
