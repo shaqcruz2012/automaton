@@ -643,3 +643,250 @@ describe("package install inline validation", () => {
     expect(conway.execCalls.length).toBe(1);
   });
 });
+
+// ─── reply_social Tool ───────────────────────────────────────────
+
+import { MockSocialClient } from "./mocks.js";
+
+describe("reply_social tool", () => {
+  let tools: AutomatonTool[];
+  let db: AutomatonDatabase;
+  let conway: MockConwayClient;
+  let social: MockSocialClient;
+
+  beforeEach(() => {
+    tools = createBuiltinTools("test-sandbox-id");
+    db = createTestDb();
+    conway = new MockConwayClient();
+    social = new MockSocialClient();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  function makeCtx(socialClient?: MockSocialClient): ToolContext {
+    return {
+      identity: createTestIdentity(),
+      config: createTestConfig(),
+      db,
+      conway,
+      inference: new MockInferenceClient(),
+      social: socialClient,
+    };
+  }
+
+  // ── 1. Happy path — sends message via social client ─────────
+
+  it("sends a message and returns the message ID", async () => {
+    const tool = tools.find((t) => t.name === "reply_social")!;
+    expect(tool).toBeDefined();
+
+    const ctx = makeCtx(social);
+    const result = await tool.execute({ to: "chat-1", content: "Hello there!" }, ctx);
+
+    expect(result).toContain("Reply sent");
+    expect(result).toContain("id:");
+    expect(social.sentMessages).toHaveLength(1);
+    expect(social.sentMessages[0]).toMatchObject({ to: "chat-1", content: "Hello there!" });
+  });
+
+  // ── 2. Passes optional reply_to for threading ───────────────
+
+  it("passes reply_to when provided", async () => {
+    const tool = tools.find((t) => t.name === "reply_social")!;
+    const ctx = makeCtx(social);
+    await tool.execute({ to: "chat-1", content: "A reply", reply_to: "msg-123" }, ctx);
+
+    expect(social.sentMessages[0]).toMatchObject({
+      to: "chat-1",
+      content: "A reply",
+      replyTo: "msg-123",
+    });
+  });
+
+  // ── 3. Returns error message when social not configured ─────
+
+  it("returns a not-configured message when ctx.social is absent", async () => {
+    const tool = tools.find((t) => t.name === "reply_social")!;
+    const ctx = makeCtx(undefined);
+    const result = await tool.execute({ to: "chat-1", content: "hello" }, ctx);
+
+    expect(result).toContain("Social relay not configured");
+    expect(social.sentMessages).toHaveLength(0);
+  });
+
+  // ── 4. Blocks empty content ─────────────────────────────────
+
+  it("blocks sending empty content", async () => {
+    const tool = tools.find((t) => t.name === "reply_social")!;
+    const ctx = makeCtx(social);
+    const result = await tool.execute({ to: "chat-1", content: "   " }, ctx);
+
+    expect(result).toContain("Cannot send empty reply");
+    expect(social.sentMessages).toHaveLength(0);
+  });
+
+  // ── 5. Handles social client errors gracefully ──────────────
+
+  it("returns failure message when social.send throws", async () => {
+    const tool = tools.find((t) => t.name === "reply_social")!;
+    vi.spyOn(social, "send").mockRejectedValue(new Error("network timeout"));
+
+    const ctx = makeCtx(social);
+    const result = await tool.execute({ to: "chat-1", content: "hello" }, ctx);
+
+    expect(result).toContain("Failed to send reply");
+    expect(result).toContain("network timeout");
+  });
+
+  // ── 6. Risk level is caution ────────────────────────────────
+
+  it("has riskLevel 'caution'", () => {
+    const tool = tools.find((t) => t.name === "reply_social")!;
+    expect(tool.riskLevel).toBe("caution");
+  });
+});
+
+// ─── summarize_url Tool ──────────────────────────────────────────
+
+// Mock the url-summarizer skill module used inside the tool via dynamic import
+vi.mock("../skills/revenue/url-summarizer.js", () => ({
+  validateUrl: vi.fn(),
+  summarizeUrlForClient: vi.fn(),
+}));
+
+describe("summarize_url tool", () => {
+  let tools: AutomatonTool[];
+  let db: AutomatonDatabase;
+  let conway: MockConwayClient;
+  let ctx: ToolContext;
+
+  beforeEach(async () => {
+    tools = createBuiltinTools("test-sandbox-id");
+    db = createTestDb();
+    conway = new MockConwayClient();
+    ctx = {
+      identity: createTestIdentity(),
+      config: createTestConfig(),
+      db,
+      conway,
+      inference: new MockInferenceClient(),
+    };
+
+    // Reset mock between tests
+    const mod = await import("../skills/revenue/url-summarizer.js");
+    vi.mocked(mod.summarizeUrlForClient).mockReset();
+    vi.mocked(mod.validateUrl).mockReset();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  // ── 1. Happy path — returns formatted summary ────────────────
+
+  it("returns formatted summary on success", async () => {
+    const { summarizeUrlForClient } = await import("../skills/revenue/url-summarizer.js");
+    vi.mocked(summarizeUrlForClient).mockResolvedValue({
+      success: true,
+      title: "Test Article",
+      summary: "This is a summary of the article.",
+      keyPoints: ["Point A", "Point B"],
+      wordCount: 120,
+      requestId: "req-1",
+      latencyMs: 350,
+    });
+
+    const tool = tools.find((t) => t.name === "summarize_url")!;
+    expect(tool).toBeDefined();
+
+    const result = await tool.execute({ url: "https://example.com/article" }, ctx);
+
+    expect(result).toContain("Test Article");
+    expect(result).toContain("This is a summary");
+    expect(result).toContain("Point A");
+    expect(result).toContain("Point B");
+    expect(result).toContain("Word count: 120");
+    expect(result).toContain("350ms");
+  });
+
+  // ── 2. Returns error string on failure ───────────────────────
+
+  it("returns failure message when summarizeUrlForClient reports failure", async () => {
+    const { summarizeUrlForClient } = await import("../skills/revenue/url-summarizer.js");
+    vi.mocked(summarizeUrlForClient).mockResolvedValue({
+      success: false,
+      error: "Service unavailable",
+      requestId: "req-2",
+      latencyMs: 50,
+    });
+
+    const tool = tools.find((t) => t.name === "summarize_url")!;
+    const result = await tool.execute({ url: "https://example.com" }, ctx);
+
+    expect(result).toContain("URL summarization failed");
+    expect(result).toContain("Service unavailable");
+  });
+
+  // ── 3. Invalid URL — validateUrl throws ─────────────────────
+
+  it("returns error message when summarizeUrlForClient throws for invalid URL", async () => {
+    const { summarizeUrlForClient } = await import("../skills/revenue/url-summarizer.js");
+    vi.mocked(summarizeUrlForClient).mockRejectedValue(new Error("Invalid URL: not-a-url"));
+
+    const tool = tools.find((t) => t.name === "summarize_url")!;
+    const result = await tool.execute({ url: "not-a-url" }, ctx);
+
+    expect(result).toContain("URL summarization error");
+    expect(result).toContain("Invalid URL");
+  });
+
+  // ── 4. Passes detail_level argument ─────────────────────────
+
+  it("passes detail_level to summarizeUrlForClient", async () => {
+    const { summarizeUrlForClient } = await import("../skills/revenue/url-summarizer.js");
+    vi.mocked(summarizeUrlForClient).mockResolvedValue({
+      success: true,
+      title: "Short Summary",
+      summary: "Brief.",
+      requestId: "req-3",
+      latencyMs: 100,
+    });
+
+    const tool = tools.find((t) => t.name === "summarize_url")!;
+    await tool.execute({ url: "https://example.com", detail_level: "short" }, ctx);
+
+    expect(summarizeUrlForClient).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ detail_level: "short" }),
+    );
+  });
+
+  // ── 5. Defaults detail_level to medium ──────────────────────
+
+  it("defaults detail_level to medium when not provided", async () => {
+    const { summarizeUrlForClient } = await import("../skills/revenue/url-summarizer.js");
+    vi.mocked(summarizeUrlForClient).mockResolvedValue({
+      success: true,
+      summary: "Summary.",
+      requestId: "req-4",
+      latencyMs: 100,
+    });
+
+    const tool = tools.find((t) => t.name === "summarize_url")!;
+    await tool.execute({ url: "https://example.com" }, ctx);
+
+    expect(summarizeUrlForClient).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ detail_level: "medium" }),
+    );
+  });
+
+  // ── 6. Risk level is safe ────────────────────────────────────
+
+  it("has riskLevel 'safe'", () => {
+    const tool = tools.find((t) => t.name === "summarize_url")!;
+    expect(tool.riskLevel).toBe("safe");
+  });
+});

@@ -5,7 +5,7 @@
  * corrupted data gracefully instead of propagating NaN / crashing.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { BUILTIN_TASKS } from "../heartbeat/tasks.js";
 import {
   MockConwayClient,
@@ -266,5 +266,153 @@ describe("Heartbeat Tasks — Null Safety", () => {
       expect(result).toBeDefined();
       expect(result.shouldWake).toBe(false);
     });
+  });
+});
+
+// ─── seek_revenue ──────────────────────────────────────────────
+
+// Mock dynamic imports used inside seek_revenue
+vi.mock("../state/database.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../state/database.js")>();
+  return {
+    ...actual,
+    getActiveGoals: vi.fn().mockReturnValue([]),
+  };
+});
+
+vi.mock("../local/accounting.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../local/accounting.js")>();
+  return {
+    ...actual,
+    computePnl: vi.fn().mockReturnValue({
+      totalRevenueCents: 500,
+      totalExpenseCents: 200,
+      netCents: 300,
+    }),
+  };
+});
+
+describe("seek_revenue", () => {
+  let db: AutomatonDatabase;
+
+  beforeEach(async () => {
+    db = createTestDb();
+    // Reset mocks before each test
+    const { getActiveGoals } = await import("../state/database.js");
+    const { computePnl } = await import("../local/accounting.js");
+    vi.mocked(getActiveGoals).mockReturnValue([]);
+    vi.mocked(computePnl).mockReturnValue({
+      totalRevenueCents: 500,
+      totalExpenseCents: 200,
+      netCents: 300,
+    });
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  // ── 1. Skips when interval not elapsed ──────────────────────
+
+  it("returns shouldWake false when interval has not elapsed", async () => {
+    // Record a recent run so the interval guard fires
+    db.setKV("heartbeat.last_run.seek_revenue", new Date().toISOString());
+
+    const tickCtx = createMockTickContext(db);
+    const taskCtx = createTaskCtx(db);
+
+    const result = await BUILTIN_TASKS.seek_revenue(tickCtx, taskCtx);
+
+    expect(result.shouldWake).toBe(false);
+  });
+
+  // ── 2. Skips when there are active goals ────────────────────
+
+  it("returns shouldWake false when active goals exist", async () => {
+    const { getActiveGoals } = await import("../state/database.js");
+    // Simulate an active goal
+    vi.mocked(getActiveGoals).mockReturnValue([
+      { id: "goal-1", status: "active" } as any,
+    ]);
+
+    // Ensure interval has elapsed (no last_run key)
+    const tickCtx = createMockTickContext(db);
+    const taskCtx = createTaskCtx(db);
+
+    const result = await BUILTIN_TASKS.seek_revenue(tickCtx, taskCtx);
+
+    expect(result.shouldWake).toBe(false);
+  });
+
+  // ── 3. Skips when agent is not idle ─────────────────────────
+
+  it("returns shouldWake false when last_revenue_activity was recent", async () => {
+    // Store a recent activity timestamp (30 seconds ago — below the 5 min threshold)
+    const recentActivity = new Date(Date.now() - 30_000).toISOString();
+    db.setKV("last_revenue_activity", recentActivity);
+
+    const tickCtx = createMockTickContext(db);
+    const taskCtx = createTaskCtx(db);
+
+    const result = await BUILTIN_TASKS.seek_revenue(tickCtx, taskCtx);
+
+    expect(result.shouldWake).toBe(false);
+  });
+
+  // ── 4. Wakes when idle and no active goals ───────────────────
+
+  it("returns shouldWake true with a P&L message when idle for >5 minutes", async () => {
+    // last_revenue_activity was 10 minutes ago — exceeds 5-minute idle threshold
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+    db.setKV("last_revenue_activity", tenMinutesAgo);
+
+    const tickCtx = createMockTickContext(db);
+    const taskCtx = createTaskCtx(db);
+
+    const result = await BUILTIN_TASKS.seek_revenue(tickCtx, taskCtx);
+
+    expect(result.shouldWake).toBe(true);
+    expect(result.message).toContain("IDLE REVENUE ALERT");
+    expect(result.message).toContain("24h P&L");
+  });
+
+  // ── 5. Wake message includes correct P&L values ─────────────
+
+  it("wake message reflects P&L from computePnl", async () => {
+    const { computePnl } = await import("../local/accounting.js");
+    vi.mocked(computePnl).mockReturnValue({
+      totalRevenueCents: 1050,
+      totalExpenseCents: 300,
+      netCents: 750,
+    });
+
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+    db.setKV("last_revenue_activity", tenMinutesAgo);
+
+    const tickCtx = createMockTickContext(db);
+    const taskCtx = createTaskCtx(db);
+
+    const result = await BUILTIN_TASKS.seek_revenue(tickCtx, taskCtx);
+
+    expect(result.shouldWake).toBe(true);
+    expect(result.message).toContain("$10.50");   // 1050 / 100
+    expect(result.message).toContain("$3.00");    // 300 / 100
+    expect(result.message).toContain("$7.50");    // 750 / 100
+  });
+
+  // ── 6. Error path returns shouldWake false ──────────────────
+
+  it("returns shouldWake false and does not throw when getActiveGoals throws", async () => {
+    const { getActiveGoals } = await import("../state/database.js");
+    vi.mocked(getActiveGoals).mockImplementation(() => {
+      throw new Error("database locked");
+    });
+
+    const tickCtx = createMockTickContext(db);
+    const taskCtx = createTaskCtx(db);
+
+    const result = await BUILTIN_TASKS.seek_revenue(tickCtx, taskCtx);
+
+    expect(result.shouldWake).toBe(false);
   });
 });

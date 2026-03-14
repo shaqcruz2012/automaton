@@ -20,7 +20,15 @@
  */
 
 import type BetterSqlite3 from "better-sqlite3";
-import type { CascadePool, SurvivalTier, InferenceRequest, InferenceResult } from "../types.js";
+import type {
+  CascadePool,
+  SurvivalTier,
+  InferenceRequest,
+  InferenceResult,
+  ChatMessage,
+  InferenceToolDefinition,
+  InferenceToolCall,
+} from "../types.js";
 import type { InferenceRouter } from "./router.js";
 import { getProvidersForPool, getNextPool } from "./pools.js";
 import type { ProviderConfig, ModelConfig } from "./provider-registry.js";
@@ -84,6 +92,28 @@ interface PnlCache {
   cachedAt: number;
 }
 
+/** Raw shape returned by OpenAI-compatible /v1/chat/completions endpoints. */
+interface OpenAICompletionResponse {
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ text?: string; content?: string }> | null;
+      tool_calls?: Array<{
+        id?: string | null;
+        type?: string;
+        function?: {
+          name?: string;
+          arguments?: string | Record<string, unknown>;
+        };
+      }>;
+    };
+    finish_reason?: string;
+  }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
+}
+
 /**
  * Pick the best model from a provider for the given task.
  * Prefers: reasoning for agent_turn/planning, fast for heartbeat, cheap for safety.
@@ -114,9 +144,9 @@ function pickModel(provider: ProviderConfig, taskType: string): ModelConfig | nu
  * - Merges consecutive same-role messages
  * - Ensures last message is user or tool (Mistral requirement)
  */
-function sanitizeMessagesForOpenAI(messages: any[]): any[] {
+function sanitizeMessagesForOpenAI(messages: ChatMessage[]): ChatMessage[] {
   // 1. Merge consecutive same-role messages
-  const merged: any[] = [];
+  const merged: ChatMessage[] = [];
   for (const msg of messages) {
     const last = merged[merged.length - 1];
     if (last && last.role === msg.role && msg.role !== "system" && msg.role !== "tool") {
@@ -150,8 +180,8 @@ function sanitizeMessagesForOpenAI(messages: any[]): any[] {
 async function callProviderDirect(
   provider: ProviderConfig,
   model: ModelConfig,
-  messages: any[],
-  tools: any[] | undefined,
+  messages: ChatMessage[],
+  tools: InferenceToolDefinition[] | undefined,
   maxTokens: number,
   toolChoice: "auto" | "required" = "auto",
 ): Promise<InferenceResult> {
@@ -196,7 +226,7 @@ async function callProviderDirect(
     );
   }
 
-  const json = await response.json() as any;
+  const json = await response.json() as OpenAICompletionResponse;
   const latencyMs = Date.now() - startMs;
 
   const choice = json.choices?.[0];
@@ -205,26 +235,27 @@ async function callProviderDirect(
   const content = typeof rawContent === "string"
     ? rawContent
     : Array.isArray(rawContent)
-      ? rawContent.map((p: any) => p.text ?? p.content ?? "").join("")
+      ? rawContent.map((p) => p.text ?? p.content ?? "").join("")
       : String(rawContent ?? "");
-  const toolCalls = choice?.message?.tool_calls?.map((tc: any) => {
+  const rawToolCalls = choice?.message?.tool_calls;
+  const toolCalls: InferenceToolCall[] | undefined = rawToolCalls?.map((tc) => {
     // Ollama may return undefined/null/short/invalid tool call IDs.
     // Normalize to a 9-char alphanumeric ID so downstream code always has a valid one.
-    const generateId = () => "call_" + Math.random().toString(36).slice(2, 11);
-    const normalized = (tc.id || "").toString().replace(/[^a-zA-Z0-9]/g, "").slice(0, 9).padEnd(9, "0");
+    const generateId = (): string => "call_" + Math.random().toString(36).slice(2, 11);
+    const normalized = (tc.id ?? "").toString().replace(/[^a-zA-Z0-9]/g, "").slice(0, 9).padEnd(9, "0");
     const id = normalized && normalized !== "000000000" ? normalized : generateId();
 
     // Ollama may return function.arguments as an object instead of a string.
     const rawArgs = tc.function?.arguments;
     const args = typeof rawArgs === "object" && rawArgs !== null
       ? JSON.stringify(rawArgs)
-      : rawArgs;
+      : (rawArgs ?? "");
 
     return {
       id,
-      type: tc.type,
+      type: "function" as const,
       function: {
-        name: tc.function?.name,
+        name: tc.function?.name ?? "",
         arguments: args,
       },
     };
@@ -235,7 +266,7 @@ async function callProviderDirect(
   return {
     content,
     model: model.id,
-    provider: provider.id as any,
+    provider: provider.id as InferenceResult["provider"],
     inputTokens: usage.prompt_tokens ?? 0,
     outputTokens: usage.completion_tokens ?? 0,
     costCents: 0, // free tier
@@ -423,8 +454,8 @@ export class CascadeController {
         logger.info(`Cascade: ${provider.id} succeeded (${result.inputTokens}+${result.outputTokens} tokens, ${result.latencyMs}ms)`);
         this.recordSuccess(provider.id);
         return result;
-      } catch (error: any) {
-        const errMsg = error?.message ?? String(error);
+      } catch (e: unknown) {
+        const errMsg = e instanceof Error ? e.message : String(e);
         const isRetryable = /429|413|500|503|rate.limit|timeout/i.test(errMsg)
           || isCascadable400(errMsg);
         logger.warn(`Cascade: ${provider.id} failed: ${errMsg.slice(0, 200)}`);
@@ -434,7 +465,7 @@ export class CascadeController {
         const isInfraError = /ECONNREFUSED|ECONNRESET|ENOTFOUND|system memory/i.test(errMsg);
         if (isInfraError) {
           logger.warn(`Cascade: ${provider.id} infrastructure error (not circuit-breaking): ${errMsg.slice(0, 200)}`);
-          lastError = error;
+          lastError = e instanceof Error ? e : new Error(errMsg);
           continue;
         }
 
@@ -443,12 +474,12 @@ export class CascadeController {
         const isToolFormatError = /tool_use_failed|failed_generation|Failed to call a function/i.test(errMsg);
         if (isToolFormatError) {
           logger.warn(`Cascade: ${provider.id} tool format error (not circuit-breaking): ${errMsg.slice(0, 200)}`);
-          lastError = error;
+          lastError = e instanceof Error ? e : new Error(errMsg);
           continue;
         }
 
         this.recordFailure(provider.id);
-        lastError = error;
+        lastError = e instanceof Error ? e : new Error(errMsg);
 
         if (!isRetryable) {
           // Non-retryable (401/403) — skip this provider, try next
@@ -474,7 +505,7 @@ export class CascadeController {
   async infer(
     request: InferenceRequest,
     router: InferenceRouter,
-    inferenceChat: (messages: any[], options: any) => Promise<any>,
+    inferenceChat: (messages: ChatMessage[], options: Record<string, unknown>) => Promise<unknown>,
   ): Promise<InferenceResult> {
     const startingPool = this.selectPool(request.tier, request.taskType);
     let currentPool: CascadePool | null = startingPool;
@@ -507,8 +538,8 @@ export class CascadeController {
 
         logger.info(`Cascade: ${currentPool} pool succeeded (model: ${result.model}, provider: ${result.provider})`);
         return result;
-      } catch (error: any) {
-        const errMsg = error?.message ?? String(error);
+      } catch (e: unknown) {
+        const errMsg = e instanceof Error ? e.message : String(e);
         lastErrorMsg = errMsg;
         const isRetryable = /429|413|500|503|rate.limit|timeout|exhausted|No providers/i.test(errMsg)
           || isCascadable400(errMsg);
@@ -536,7 +567,7 @@ export class CascadeController {
         }
 
         // Non-retryable error or no more pools
-        throw error;
+        throw e;
       }
     }
 
