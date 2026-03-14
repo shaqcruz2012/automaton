@@ -312,20 +312,14 @@ export class CascadeController {
    * Select the starting pool based on survival tier and profitability.
    */
   selectPool(tier: SurvivalTier): CascadePool {
-    // Hard floor: low tiers always use local models (no rate limits, no cost)
-    if (tier === "dead" || tier === "critical" || tier === "low_compute") {
+    // Dead/critical: zero-cost local inference only (survive at all costs)
+    if (tier === "dead" || tier === "critical") {
       return "local";
     }
 
-    // Profit-margin check for normal/high tiers
-    const pnl = this.getRollingPnl();
-    if (pnl.netCents > 0) {
-      logger.debug(`Cascade: profitable (net ${pnl.netCents}c) -> PAID pool`);
-      return "paid";
-    }
-
-    logger.debug(`Cascade: unprofitable (net ${pnl.netCents}c) -> LOCAL pool`);
-    return "local";
+    // All other tiers: Claude API is primary (user has funded Tier 2 credits)
+    logger.debug(`Cascade: tier=${tier} -> PAID pool (Claude Tier 2)`);
+    return "paid";
   }
 
   /**

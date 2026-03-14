@@ -872,11 +872,11 @@ export interface TokenBudget {
 }
 
 export const DEFAULT_TOKEN_BUDGET: TokenBudget = {
-  total: 6_000,          // Conservative budget for Llama 3.2 3B with 8K context
-  systemPrompt: 2_500,   // Trimmed system prompt for 3B model
-  recentTurns: 2_000,    // Keep last 1-2 turns only
-  toolResults: 1_000,    // Aggressive truncation for tool results
-  memoryRetrieval: 500,  // Minimal memory block
+  total: 32_000,          // Claude Haiku/Sonnet with 200K context
+  systemPrompt: 8_000,    // Full system prompt with soul + worklog
+  recentTurns: 16_000,    // Keep several turns of conversation history
+  toolResults: 5_000,     // Detailed tool results
+  memoryRetrieval: 3_000, // Rich memory retrieval
 };
 
 // ─── Phase 1: Runtime Reliability ───────────────────────────────
@@ -1135,11 +1135,11 @@ export interface MemoryBudget {
 }
 
 export const DEFAULT_MEMORY_BUDGET: MemoryBudget = {
-  workingMemoryTokens: 150,   // Trimmed for 3B local model (500 total budget)
-  episodicMemoryTokens: 150,
-  semanticMemoryTokens: 100,
-  proceduralMemoryTokens: 50,
-  relationshipMemoryTokens: 50,
+  workingMemoryTokens: 1_500,
+  episodicMemoryTokens: 3_000,
+  semanticMemoryTokens: 3_000,
+  proceduralMemoryTokens: 1_500,
+  relationshipMemoryTokens: 1_000,
 };
 
 // === Phase 2.3: Inference & Model Strategy Types ===

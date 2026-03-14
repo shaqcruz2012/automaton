@@ -17,7 +17,7 @@ import type {
 import { DEFAULT_TOKEN_BUDGET } from "../types.js";
 import { createTokenCounter } from "../memory/context-manager.js";
 
-const MAX_CONTEXT_TURNS = 2;
+const MAX_CONTEXT_TURNS = 4;
 const SUMMARY_THRESHOLD = 3;
 
 /**
@@ -40,7 +40,7 @@ function sanitizeToolCallId(id: string | undefined): string {
 let tokenCounter: ReturnType<typeof createTokenCounter> | null = null;
 
 /** Maximum size for individual tool results in characters */
-export const MAX_TOOL_RESULT_SIZE = 3_000;
+export const MAX_TOOL_RESULT_SIZE = 8_000;
 
 /** Maximum size for tool call arguments when replayed in conversation history */
 const MAX_TOOL_ARGS_SIZE = 500;

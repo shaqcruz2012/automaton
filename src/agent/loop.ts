@@ -714,14 +714,14 @@ export async function runAgentLoop(
       const currentInput = pendingInput;
 
       // ── Adaptive rate-limit cooldown ──
-      // Tier 1 Haiku: 50K input tokens/min. Cooldown scales with actual token usage.
-      // At 16K tokens/call: ~20s cooldown (3 calls/min = 48K tokens/min).
-      // At 12K tokens/call: ~15s cooldown (4 calls/min = 48K tokens/min).
-      // Minimum 5s floor. If we hit 429, the retry logic handles it.
-      const INPUT_TOKENS_PER_MINUTE_LIMIT = 48_000; // 95% of Tier 1's 50K
-      const estimatedTokens = lastInputTokenCount || 12_000;
+      // Tier 2 Claude: 450K ITPM (cached tokens excluded). Cooldown scales with token usage.
+      // At 16K tokens/call: ~2.1s cooldown (28 calls/min = 448K tokens/min).
+      // At 32K tokens/call: ~4.3s cooldown (14 calls/min = 448K tokens/min).
+      // Minimum 2s floor. If we hit 429, the retry logic handles it.
+      const INPUT_TOKENS_PER_MINUTE_LIMIT = 430_000; // 95% of Tier 2's 450K ITPM
+      const estimatedTokens = lastInputTokenCount || 16_000;
       const adaptiveCooldownMs = Math.ceil((estimatedTokens / INPUT_TOKENS_PER_MINUTE_LIMIT) * 60_000);
-      const MIN_INFERENCE_INTERVAL_MS = Math.max(5_000, adaptiveCooldownMs);
+      const MIN_INFERENCE_INTERVAL_MS = Math.max(2_000, adaptiveCooldownMs);
       const timeSinceLastInference = Date.now() - lastInferenceTimestamp;
       if (timeSinceLastInference < MIN_INFERENCE_INTERVAL_MS) {
         const waitMs = MIN_INFERENCE_INTERVAL_MS - timeSinceLastInference;
