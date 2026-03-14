@@ -62,7 +62,7 @@ export class InferenceRouter {
     }
 
     // Try each candidate model; on retryable errors (429, 413, 500, 503) try the next
-    let lastError: any = null;
+    let lastError: Error | null = null;
     for (const model of candidates) {
       try {
         return await this.routeWithModel(model, request, inferenceChat);
@@ -77,7 +77,7 @@ export class InferenceRouter {
         throw error;
       }
     }
-    throw lastError;
+    throw lastError ?? new Error("All inference candidates exhausted");
   }
 
   /**
@@ -97,7 +97,7 @@ export class InferenceRouter {
     // No /100 needed — that was double-dividing, making costs 100x too small.
     const estimatedCostCents = Math.ceil(
       (estimatedTokens / 1000) * model.costPer1kInput +
-      (request.maxTokens || 1000) / 1000 * model.costPer1kOutput,
+      (request.maxTokens ?? 1000) / 1000 * model.costPer1kOutput,
     );
 
     const budgetCheck = this.budget.checkBudget(estimatedCostCents, model.modelId);
@@ -136,20 +136,21 @@ export class InferenceRouter {
 
     // 5. Build inference options
     const preference = this.getPreference(tier, taskType);
-    const maxTokens = request.maxTokens || preference?.maxTokens || model.maxTokens;
-    const timeout = TASK_TIMEOUTS[taskType] || 120_000;
+    const maxTokens = request.maxTokens ?? preference?.maxTokens ?? model.maxTokens;
+    const timeout = TASK_TIMEOUTS[taskType] ?? 120_000;
 
     // Force tool use on triage AND agent_turn so the model must make actual
     // tool calls instead of outputting JSON-as-text (mirrors cascade-controller logic).
+    // Exception: Groq Llama models fail with "required" — use "auto" instead.
     const forceTools = (taskType === "heartbeat_triage" || taskType === "agent_turn")
       && tools?.length;
-    const toolChoice = forceTools ? "required" : "auto";
+    const isGroq = model.provider === "groq";
+    const toolChoice = (forceTools && !isGroq) ? "required" : "auto";
 
     const inferenceOptions: any = {
       model: model.modelId,
       maxTokens,
-      tools: tools,
-      tool_choice: toolChoice,
+      ...(tools && tools.length > 0 ? { tools, tool_choice: toolChoice } : {}),
     };
 
     // 6. Call inference with timeout
@@ -184,8 +185,8 @@ export class InferenceRouter {
 
     // 7. Calculate actual cost
     // UnifiedInferenceResult.usage uses inputTokens/outputTokens (not promptTokens/completionTokens)
-    const inputTokens = response.usage?.inputTokens || response.usage?.promptTokens || 0;
-    const outputTokens = response.usage?.outputTokens || response.usage?.completionTokens || 0;
+    const inputTokens = response.usage?.inputTokens ?? response.usage?.promptTokens ?? 0;
+    const outputTokens = response.usage?.outputTokens ?? response.usage?.completionTokens ?? 0;
     const actualCostCents = Math.ceil(
       (inputTokens / 1000) * model.costPer1kInput +
       (outputTokens / 1000) * model.costPer1kOutput,

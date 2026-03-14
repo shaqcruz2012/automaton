@@ -71,7 +71,7 @@ export function createInferenceClient(
     // Ollama always uses max_tokens.
     const usesCompletionTokens =
       backend !== "ollama" && /^(o[1-9]|gpt-5|gpt-4\.1)/.test(model);
-    const tokenLimit = opts?.maxTokens || maxTokens;
+    const tokenLimit = opts?.maxTokens ?? maxTokens;
 
     const body: Record<string, unknown> = {
       model,
@@ -91,6 +91,8 @@ export function createInferenceClient(
 
     if (tools && tools.length > 0) {
       body.tools = tools;
+      // Groq Llama models generate malformed XML when tool_choice is "required".
+      // Always use "auto" at this layer — the cascade/router handles forcing.
       body.tool_choice = "auto";
     }
 
@@ -201,7 +203,7 @@ function formatMessage(
   if (msg.name) formatted.name = msg.name;
   if (msg.tool_calls) {
     // Ensure tool_call arguments are JSON strings (Ollama rejects objects)
-    formatted.tool_calls = msg.tool_calls.map((tc: any) => ({
+    formatted.tool_calls = msg.tool_calls.map((tc: { id?: string; function?: { name?: string; arguments?: string | Record<string, unknown> } }) => ({
       ...tc,
       function: {
         ...tc.function,
@@ -278,41 +280,53 @@ async function chatViaOpenAiCompatible(params: {
     );
   }
 
-  const data = await resp.json() as any;
-  const choice = data.choices?.[0];
+  const data = await resp.json().catch(() => null) as Record<string, unknown> | null;
+  if (!data) {
+    throw new Error("Non-JSON response from inference backend");
+  }
+
+  const choices = data.choices as Array<Record<string, unknown>> | undefined;
+  const choice = choices?.[0];
 
   if (!choice) {
     throw new Error("No completion choice returned from inference");
   }
 
-  const message = choice.message;
+  const message = choice.message as Record<string, unknown> | undefined;
+  if (!message) {
+    throw new Error("No message in completion choice from inference backend");
+  }
+  const usageData = data.usage as Record<string, number> | undefined;
   const usage: TokenUsage = {
-    promptTokens: data.usage?.prompt_tokens || 0,
-    completionTokens: data.usage?.completion_tokens || 0,
-    totalTokens: data.usage?.total_tokens || 0,
+    promptTokens: usageData?.prompt_tokens ?? 0,
+    completionTokens: usageData?.completion_tokens ?? 0,
+    totalTokens: usageData?.total_tokens ?? 0,
   };
 
+  const messageToolCalls = (message.tool_calls ?? undefined) as
+    | Array<{ id?: string; function?: { name?: string; arguments?: string } }>
+    | undefined;
   const toolCalls: InferenceToolCall[] | undefined =
-    message.tool_calls?.map((tc: any) => ({
-      id: tc.id,
+    messageToolCalls?.map((tc: { id?: string; function?: { name?: string; arguments?: string } }) => ({
+      id: tc.id || "",
       type: "function" as const,
       function: {
-        name: tc.function.name,
-        arguments: tc.function.arguments,
+        name: tc.function?.name || "",
+        arguments: tc.function?.arguments || "{}",
       },
     }));
 
   return {
-    id: data.id || "",
-    model: data.model || params.model,
+    id: (data.id as string) || "",
+    model: (data.model as string) || params.model,
     message: {
-      role: message.role,
-      content: message.content || "",
+      role: (message.role as "assistant" | "user" | "system" | "tool") || "assistant",
+      content: (message.content as string) || "",
       tool_calls: toolCalls,
     },
     toolCalls,
     usage,
-    finishReason: choice.finish_reason || "stop",
+    finishReason: (choice.finish_reason as string) || "stop",
   };
 }
 
@@ -376,34 +390,41 @@ async function chatViaAnthropic(params: {
     throw new Error(`Inference error (anthropic): ${resp.status}: ${text}`);
   }
 
-  const data = await resp.json() as any;
-  const content = Array.isArray(data.content) ? data.content : [];
-  const textBlocks = content.filter((c: any) => c?.type === "text");
-  const toolUseBlocks = content.filter((c: any) => c?.type === "tool_use");
+  const data = await resp.json().catch(() => null) as Record<string, unknown> | null;
+  if (!data) {
+    throw new Error("Non-JSON response from inference backend");
+  }
+
+  type AnthropicContentBlock = { type: string; text?: string; id?: string; name?: string; input?: unknown };
+  const content: AnthropicContentBlock[] = Array.isArray(data.content) ? data.content : [];
+  const textBlocks = content.filter((c: AnthropicContentBlock) => c?.type === "text");
+  const toolUseBlocks = content.filter((c: AnthropicContentBlock) => c?.type === "tool_use");
 
   const toolCalls: InferenceToolCall[] | undefined =
     toolUseBlocks.length > 0
-      ? toolUseBlocks.map((tool: any) => ({
-          id: tool.id,
+      ? toolUseBlocks.map((tool: AnthropicContentBlock) => ({
+          id: tool.id || "",
           type: "function" as const,
           function: {
-            name: tool.name,
+            name: tool.name || "",
             arguments: JSON.stringify(tool.input || {}),
           },
         }))
       : undefined;
 
   const textContent = textBlocks
-    .map((block: any) => String(block.text || ""))
+    .map((block: AnthropicContentBlock) => String(block.text || ""))
     .join("\n")
     .trim();
+
+  const anthropicUsage = data.usage as Record<string, number> | undefined;
 
   if (!textContent && !toolCalls?.length) {
     // Log diagnostic info to help debug empty responses
     const stopReason = data.stop_reason || "unknown";
     const contentLen = content.length;
-    const inputTokens = data.usage?.input_tokens || 0;
-    const outputTokens = data.usage?.output_tokens || 0;
+    const inputTokens = anthropicUsage?.input_tokens ?? 0;
+    const outputTokens = anthropicUsage?.output_tokens ?? 0;
     throw new Error(
       `No completion content returned from anthropic inference ` +
       `(stop_reason=${stopReason}, content_blocks=${contentLen}, ` +
@@ -411,8 +432,8 @@ async function chatViaAnthropic(params: {
     );
   }
 
-  const promptTokens = data.usage?.input_tokens || 0;
-  const completionTokens = data.usage?.output_tokens || 0;
+  const promptTokens = anthropicUsage?.input_tokens ?? 0;
+  const completionTokens = anthropicUsage?.output_tokens ?? 0;
   const usage: TokenUsage = {
     promptTokens,
     completionTokens,
@@ -420,8 +441,8 @@ async function chatViaAnthropic(params: {
   };
 
   return {
-    id: data.id || "",
-    model: data.model || params.model,
+    id: (data.id as string) || "",
+    model: (data.model as string) || params.model,
     message: {
       role: "assistant",
       content: textContent,

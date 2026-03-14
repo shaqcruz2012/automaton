@@ -39,7 +39,7 @@ export async function executeFundingStrategies(
   try {
     const result = await getOnChainBalance(identity.address);
     if (result.ok) balanceCents = result.balanceCents;
-  } catch {}
+  } catch (err) { console.warn("[funding] Balance fetch failed:", err instanceof Error ? err.message : err); }
 
   // Check how recently we last begged for this specific tier (don't spam).
   const tierKey = `last_funding_request_${tier}`;

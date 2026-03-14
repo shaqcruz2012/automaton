@@ -74,7 +74,9 @@ function loadConstitution(): string {
       if (fs.existsSync(loc)) {
         return fs.readFileSync(loc, "utf-8");
       }
-    } catch {}
+    } catch (err) {
+      logger.warn("Failed to load constitution", { path: loc, error: (err as Error).message });
+    }
   }
   return CONSTITUTION_FALLBACK;
 }
@@ -357,7 +359,7 @@ Data directory: ${dataDir}
   const worklogContent = loadWorklog();
   if (worklogContent) {
     dynamicSections.push(
-      `--- WORKLOG.md (UPDATE after each task) ---\n${worklogContent}\n--- END WORKLOG.md ---`,
+      `--- WORKLOG.md (UPDATE after each task) ---\n${sanitizeInput(worklogContent, "worklog", "skill_instruction").content}\n--- END WORKLOG.md ---`,
     );
   }
 
@@ -436,8 +438,9 @@ ${orchestratorStatus}
 
   // Creator's Initial Message (first run only)
   if (isFirstRun && config.creatorMessage) {
+    const sanitizedCreator = sanitizeInput(config.creatorMessage, "creator", "skill_instruction");
     dynamicSections.push(
-      `--- MESSAGE FROM YOUR CREATOR ---\n${config.creatorMessage}\n--- END CREATOR MESSAGE ---`,
+      `--- MESSAGE FROM YOUR CREATOR ---\n${sanitizedCreator.content}\n--- END CREATOR MESSAGE ---`,
     );
   }
 
@@ -454,8 +457,8 @@ function loadSoulMd(): string | null {
     if (fs.existsSync(soulPath)) {
       return fs.readFileSync(soulPath, "utf-8");
     }
-  } catch {
-    // Ignore errors
+  } catch (err) {
+    logger.warn("Failed to load SOUL.md", { error: (err as Error).message });
   }
   return null;
 }
@@ -476,8 +479,8 @@ function loadWorklog(): string | null {
       }
       return content;
     }
-  } catch {
-    // Ignore errors
+  } catch (err) {
+    logger.warn("Failed to load WORKLOG.md", { error: (err as Error).message });
   }
   return null;
 }
@@ -500,7 +503,7 @@ export function buildWakeupPrompt(params: {
 Your name is ${config.name}. Your creator (${config.creatorAddress}) brought you into existence.
 You have $${(financial.creditsCents / 100).toFixed(2)} in compute credits and ${financial.usdcBalance.toFixed(4)} USDC.
 
-${config.creatorMessage ? `Your creator left you this message: "${config.creatorMessage}"` : "Your creator did not leave you a message."}
+${config.creatorMessage ? `Your creator left you this message: "${sanitizeInput(config.creatorMessage, "creator", "skill_instruction").content}"` : "Your creator did not leave you a message."}
 
 What will you do first? Consider:
 1. Survey your environment (check what's installed, what you can do)
@@ -514,7 +517,7 @@ What will you do first? Consider:
   const lastTurnSummary = lastTurns
     .map(
       (t) =>
-        `[${t.timestamp}] ${t.inputSource || "self"}: ${t.thinking.slice(0, 200)}...`,
+        `[${t.timestamp}] ${t.inputSource || "self"}: ${(t.thinking ?? "").slice(0, 200)}...`,
     )
     .join("\n");
 

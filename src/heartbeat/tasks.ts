@@ -51,7 +51,8 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     const state = taskCtx.db.getAgentState();
     const startTime =
       taskCtx.db.getKV("start_time") || new Date().toISOString();
-    const uptimeMs = Date.now() - new Date(startTime).getTime();
+    const startMs = Date.parse(startTime);
+    const uptimeMs = Number.isNaN(startMs) ? 0 : Date.now() - startMs;
 
     const tier = ctx.survivalTier;
 
@@ -216,6 +217,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     // Sanitize content before DB insertion
     let newCount = 0;
     for (const msg of messages) {
+      if (!msg.id || typeof msg.id !== "string") continue;
       const existing = taskCtx.db.getKV(`inbox_seen_${msg.id}`);
       if (!existing) {
         const sanitizedFrom = sanitizeInput(msg.from, msg.from, "social_address");
@@ -240,7 +242,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
 
     return {
       shouldWake: true,
-      message: `${newCount} new message(s) from: ${messages.map((m) => m.from.slice(0, 10)).join(", ")}`,
+      message: `${newCount} new message(s) from: ${messages.map((m) => (m.from ?? "unknown").slice(0, 10)).join(", ")}`,
     };
   },
 
@@ -618,7 +620,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     const automatonDir = getAutomatonDir();
 
     const services = [
-      { name: "Landing Page",        file: "landing-minimal.js",          port: 3000, health: "/" },
+      { name: "Landing Page",        file: "services/landing-page/start.js", port: 3000, health: "/health" },
       { name: "Text Analysis API",   file: "services/text-analysis.js",   port: 9000, health: "/health" },
       { name: "Data Processing API", file: "services/data-processing.js", port: 9001, health: "/health" },
       { name: "TrustCheck API",      file: "trustcheck-complete.js",      port: 9002, health: "/health" },
@@ -647,11 +649,19 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       let didRestart = false;
 
       if (!alive) {
-        const fullPath = path.join(automatonDir, svc.file);
-        if (fs.existsSync(fullPath)) {
+        // Try ~/.automaton/ first, then project root (for services like landing-page
+        // that live in the repo rather than the data directory)
+        const { fileURLToPath } = await import("url");
+        const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+        const candidates = [
+          path.join(automatonDir, svc.file),
+          path.join(projectDir, svc.file),
+        ];
+        const fullPath = candidates.find((p) => fs.existsSync(p));
+        if (fullPath) {
           try {
             const child = spawn(process.execPath, [fullPath], {
-              cwd: automatonDir,
+              cwd: path.dirname(fullPath),
               stdio: "ignore",
               detached: true,
             });
@@ -756,8 +766,9 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       taskCtx.db.setKV("creator_tax_last_transfer", new Date().toISOString());
 
       const historyStr = taskCtx.db.getKV("creator_tax_history") || "[]";
+      const parsed = JSON.parse(historyStr);
       const history: Array<{ timestamp: string; amountCents: number; balanceBefore: number }> =
-        JSON.parse(historyStr);
+        Array.isArray(parsed) ? parsed : [];
       history.push({
         timestamp: new Date().toISOString(),
         amountCents: taxAmount,

@@ -343,6 +343,7 @@ export class UnifiedInferenceClient {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
     });
 
     if (!resp.ok) {

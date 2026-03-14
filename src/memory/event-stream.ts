@@ -30,7 +30,8 @@ export type EventType =
   | "market_signal"
   | "revenue"
   | "error"
-  | "reflection";
+  | "reflection"
+  | "compression_warning";
 
 export interface StreamEvent {
   id: string;
@@ -58,6 +59,8 @@ export class EventStream {
   constructor(private readonly db: Database) {}
 
   append(event: Omit<StreamEvent, "id" | "createdAt">): string {
+    if (!event.agentAddress) throw new Error("EventStream.append: agentAddress is required");
+    if (typeof event.content !== "string") throw new Error("EventStream.append: content must be a string");
     const id = ulid();
     const createdAt = new Date().toISOString();
     const tokenCount = event.tokenCount === 0
@@ -83,7 +86,8 @@ export class EventStream {
   }
 
   getRecent(agentAddress: string, limit: number = 50): StreamEvent[] {
-    return getRecentEvents(this.db, agentAddress, limit).map(toStreamEvent);
+    const safeLimit = Math.max(1, Math.min(limit, 1000));
+    return getRecentEvents(this.db, agentAddress, safeLimit).map(toStreamEvent);
   }
 
   getByGoal(goalId: string): StreamEvent[] {
@@ -126,17 +130,20 @@ export class EventStream {
     let compactedCount = 0;
     let tokensSaved = 0;
 
-    for (const row of rows) {
-      const compactedTo = strategy === "reference"
-        ? buildReference(row)
-        : buildSummary(row);
-      updateStatement.run(compactedTo, row.id);
-      compactedCount += 1;
-      tokensSaved += Math.max(
-        0,
-        row.tokenCount - estimateTokens(compactedTo),
-      );
-    }
+    const runCompaction = this.db.transaction(() => {
+      for (const row of rows) {
+        const compactedTo = strategy === "reference"
+          ? buildReference(row)
+          : buildSummary(row);
+        updateStatement.run(compactedTo, row.id);
+        compactedCount += 1;
+        tokensSaved += Math.max(
+          0,
+          row.tokenCount - estimateTokens(compactedTo),
+        );
+      }
+    });
+    runCompaction();
 
     return {
       compactedCount,

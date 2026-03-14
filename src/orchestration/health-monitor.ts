@@ -86,9 +86,34 @@ export class HealthMonitor {
     const nowIso = new Date().toISOString();
     const children = this.db.getChildren();
 
-    const agents = await Promise.all(
+    const results = await Promise.allSettled(
       children.map(async (child) => this.checkChildHealth(child, nowIso)),
     );
+
+    const agents: AgentHealthStatus[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === "fulfilled") {
+        agents.push(result.value);
+      } else {
+        logger.warn("Health check failed for child agent", {
+          address: children[i].address,
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+        // Include a degraded health status so this agent isn't silently dropped
+        agents.push({
+          address: children[i].address,
+          name: children[i].name,
+          status: "unknown",
+          healthy: false,
+          lastHeartbeat: null,
+          currentTaskId: null,
+          creditBalance: null,
+          errorRate: 0,
+          issues: ["health_check_failed"],
+        });
+      }
+    }
 
     const unhealthyAgents = agents.filter((agent) => !agent.healthy).length;
     const deadAgents = agents.filter((agent) => isDeadStatus(agent.status)).length;

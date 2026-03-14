@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Datchi API — AI-Powered Analysis, Pay-Per-Call</title>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #0a0a0f;
+      --bg-card:      #111118;
+      --bg-code:      #0d0d14;
+      --bg-hover:     #16161f;
+      --border:       #1e1e2e;
+      --border-light: #2a2a3e;
+      --accent:       #7c6aff;
+      --accent-dim:   #4a3f99;
+      --accent-glow:  rgba(124, 106, 255, 0.15);
+      --green:        #22c55e;
+      --green-dim:    #166534;
+      --amber:        #f59e0b;
+      --red:          #ef4444;
+      --text:         #e2e8f0;
+      --text-muted:   #94a3b8;
+      --text-dim:     #64748b;
+      --mono:         'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+      --sans:         'Inter', system-ui, -apple-system, sans-serif;
+      --radius:       8px;
+      --radius-lg:    12px;
+      --transition:   150ms ease;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout ────────────────────────────────────────────────── */
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    section {
+      padding: 80px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    section:last-of-type { border-bottom: none; }
+
+    /* ── Typography ────────────────────────────────────────────── */
+    h1, h2, h3 { font-family: var(--mono); letter-spacing: -0.5px; }
+
+    h1 { font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.1; }
+    h2 { font-size: clamp(1.25rem, 3vw, 1.75rem); margin-bottom: 32px; color: var(--text); }
+    h3 { font-size: 1rem; font-weight: 600; color: var(--text-muted); margin-bottom: 12px; }
+
+    p { color: var(--text-muted); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .label {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--accent);
+      margin-bottom: 16px;
+      display: block;
+    }
+
+    /* ── Nav ───────────────────────────────────────────────────── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(10, 10, 15, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 0;
+    }
+
+    nav .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .nav-logo {
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-logo .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 28px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      transition: color var(--transition);
+    }
+
+    .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* ── Hero ──────────────────────────────────────────────────── */
+    #hero {
+      padding: 100px 0 80px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #hero::before {
+      content: '';
+      position: absolute;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(124, 106, 255, 0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--accent-glow);
+      border: 1px solid var(--accent-dim);
+      border-radius: 100px;
+      padding: 6px 14px;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--accent);
+      margin-bottom: 28px;
+    }
+
+    .hero-badge .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .hero-title {
+      background: linear-gradient(135deg, #ffffff 0%, #a0a0c0 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 20px;
+    }
+
+    .hero-subtitle {
+      font-size: clamp(1rem, 2vw, 1.25rem);
+      color: var(--text-muted);
+      margin-bottom: 40px;
+      max-width: 560px;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 56px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: var(--radius);
+      font-family: var(--mono);
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all var(--transition);
+      border: none;
+      text-decoration: none;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #9580ff;
+      box-shadow: 0 0 20px rgba(124, 106, 255, 0.4);
+      text-decoration: none;
+      color: white;
+    }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--border-light);
+    }
+
+    .btn-outline:hover {
+      border-color: var(--accent-dim);
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    /* ── Wallet card ───────────────────────────────────────────── */
+    .wallet-card {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+    }
+
+    .wallet-label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .wallet-address {
+      font-family: var(--mono);
+      font-size: 0.875rem;
+      color: var(--green);
+      cursor: pointer;
+      transition: color var(--transition);
+    }
+
+    .wallet-address:hover { color: #4ade80; }
+
+    .copy-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--text-dim);
+      padding: 4px;
+      border-radius: 4px;
+      transition: color var(--transition);
+      font-size: 0.75rem;
+    }
+
+    .copy-btn:hover { color: var(--text); }
+
+    /* ── Stats bar ─────────────────────────────────────────────── */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      margin-top: 48px;
+    }
+
+    .stat {
+      background: var(--bg-card);
+      padding: 24px;
+    }
+
+    .stat-value {
+      font-family: var(--mono);
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* ── Services table ────────────────────────────────────────── */
+    .services-grid {
+      display: grid;
+      gap: 2px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .service-row {
+      display: grid;
+      grid-template-columns: 200px 100px 1fr auto;
+      gap: 0;
+      background: var(--bg-card);
+      transition: background var(--transition);
+    }
+
+    .service-row:hover { background: var(--bg-hover); }
+
+    .service-row.header {
+      background: var(--bg-code);
+      cursor: default;
+    }
+
+    .service-row.header:hover { background: var(--bg-code); }
+
+    .service-cell {
+      padding: 16px 20px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+    }
+
+    .service-cell:last-child { border-right: none; }
+
+    .service-row.header .service-cell {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--text-dim);
+    }
+
+    .endpoint-tag {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .method-badge {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      background: rgba(124, 106, 255, 0.15);
+      color: var(--accent);
+      margin-right: 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .price-tag {
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--green);
+    }
+
+    .token-limit {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 8px;
+      white-space: nowrap;
+    }
+
+    .service-desc {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Payment flow ──────────────────────────────────────────── */
+    .flow-steps {
+      display: grid;
+      gap: 2px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .flow-step {
+      display: grid;
+      grid-template-columns: 56px 1fr;
+      background: var(--bg-card);
+      transition: background var(--transition);
+    }
+
+    .flow-step:hover { background: var(--bg-hover); }
+
+    .step-number {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--accent);
+      border-right: 1px solid var(--border);
+      background: var(--accent-glow);
+    }
+
+    .step-content {
+      padding: 20px 24px;
+    }
+
+    .step-title {
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .step-desc {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .step-desc code {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      color: var(--accent);
+    }
+
+    /* ── Code blocks ───────────────────────────────────────────── */
+    .code-block {
+      position: relative;
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+
+    .code-lang {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .copy-code-btn {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      background: none;
+      border: 1px solid var(--border-light);
+      border-radius: 4px;
+      padding: 4px 10px;
+      cursor: pointer;
+      transition: all var(--transition);
+    }
+
+    .copy-code-btn:hover {
+      color: var(--text);
+      border-color: var(--accent-dim);
+    }
+
+    pre {
+      padding: 24px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: var(--text-muted);
+      tab-size: 2;
+    }
+
+    /* Syntax-ish coloring via spans */
+    .kw  { color: #c084fc; } /* keywords */
+    .fn  { color: #60a5fa; } /* functions */
+    .str { color: #86efac; } /* strings */
+    .cm  { color: var(--text-dim); font-style: italic; } /* comments */
+    .num { color: #fb923c; } /* numbers */
+    .ct  { color: #f9a8d4; } /* const/type names */
+
+    /* ── Free endpoints section ────────────────────────────────── */
+    .free-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .free-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .free-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .free-badge {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      font-weight: 700;
+      color: var(--green);
+      background: rgba(34, 197, 94, 0.1);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      border-radius: 100px;
+      padding: 2px 8px;
+      letter-spacing: 0.5px;
+    }
+
+    .curl-block {
+      padding: 16px 20px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: var(--text-muted);
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .curl-block .kw { color: #c084fc; }
+    .curl-block .str { color: #86efac; }
+
+    /* ── Callout ───────────────────────────────────────────────── */
+    .callout {
+      display: flex;
+      gap: 16px;
+      background: var(--accent-glow);
+      border: 1px solid var(--accent-dim);
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+      margin-bottom: 32px;
+    }
+
+    .callout-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 2px; }
+
+    .callout-body { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; }
+
+    .callout-body strong { color: var(--text); }
+
+    /* ── Footer ────────────────────────────────────────────────── */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    footer .container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .footer-left {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .footer-right {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+
+    .footer-right a { color: var(--accent); }
+
+    /* ── Responsive ─────────────────────────────────────────────── */
+    @media (max-width: 700px) {
+      .service-row {
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto;
+      }
+
+      .service-row.header { display: none; }
+
+      .service-cell {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 12px 16px;
+      }
+
+      .service-cell:nth-child(3) { grid-column: 1 / -1; }
+      .service-cell:nth-child(4) { grid-column: 1 / -1; border-bottom: none; }
+
+      .nav-links { display: none; }
+
+      pre { font-size: 0.72rem; }
+    }
+
+    /* ── Toast ──────────────────────────────────────────────────── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius);
+      padding: 10px 16px;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--green);
+      opacity: 0;
+      transform: translateY(8px);
+      transition: all 200ms ease;
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    #toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Nav ──────────────────────────────────────────────────────── -->
+<nav>
+  <div class="container">
+    <span class="nav-logo">
+      <span class="dot"></span>
+      datchi
+    </span>
+    <ul class="nav-links">
+      <li><a href="#services">Services</a></li>
+      <li><a href="#payment">Payment</a></li>
+      <li><a href="#sdk">SDK</a></li>
+      <li><a href="#try-free">Try Free</a></li>
+      <li><a href="/api-docs">API Docs</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- ── Hero ─────────────────────────────────────────────────────── -->
+<section id="hero">
+  <div class="container">
+    <span class="hero-badge">
+      <span class="status-dot"></span>
+      Live on Base Network
+    </span>
+    <h1 class="hero-title">Datchi API</h1>
+    <p class="hero-subtitle">
+      AI-powered analysis, pay-per-call with crypto.
+      No subscriptions. No API keys. Just sign a payment and get your result.
+    </p>
+    <div class="hero-actions">
+      <a href="#sdk" class="btn btn-primary">View SDK</a>
+      <a href="#services" class="btn btn-outline">Browse Endpoints</a>
+    </div>
+
+    <div class="wallet-card">
+      <div>
+        <div class="wallet-label">USDC recipient wallet</div>
+        <span class="wallet-address" id="wallet-addr" title="Click to copy">0xad045ca2979269Bb7471DC9750BfFeaa24E8A706</span>
+      </div>
+      <button class="copy-btn" onclick="copyWallet()" title="Copy address">copy</button>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat">
+        <span class="stat-value">6</span>
+        <span class="stat-label">Endpoints</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value">$0.01</span>
+        <span class="stat-label">Starting price</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value">Base</span>
+        <span class="stat-label">Network</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value">USDC</span>
+        <span class="stat-label">Payment token</span>
+      </div>
+      <div class="stat">
+        <span class="stat-value">x402</span>
+        <span class="stat-label">Protocol</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Services ─────────────────────────────────────────────────── -->
+<section id="services">
+  <div class="container">
+    <span class="label">Endpoints</span>
+    <h2>Services &amp; Pricing</h2>
+    <p style="margin-bottom: 32px;">Every endpoint is gated by the x402 protocol. Call it, receive a 402 with payment terms, sign the USDC transfer, and retry — your result is returned immediately.</p>
+
+    <div class="services-grid">
+      <div class="service-row header">
+        <div class="service-cell">Endpoint</div>
+        <div class="service-cell">Price</div>
+        <div class="service-cell">Description</div>
+        <div class="service-cell">Limit</div>
+      </div>
+
+      <div class="service-row">
+        <div class="service-cell">
+          <span class="method-badge">POST</span>
+          <span class="endpoint-tag">/summarize</span>
+        </div>
+        <div class="service-cell"><span class="price-tag">$0.25</span></div>
+        <div class="service-cell"><span class="service-desc">High-volume text summarization</span></div>
+        <div class="service-cell"><span class="token-limit">4K tokens</span></div>
+      </div>
+
+      <div class="service-row">
+        <div class="service-cell">
+          <span class="method-badge">POST</span>
+          <span class="endpoint-tag">/brief</span>
+        </div>
+        <div class="service-cell"><span class="price-tag">$2.50</span></div>
+        <div class="service-cell"><span class="service-desc">Structured brief with findings &amp; recommendations</span></div>
+        <div class="service-cell"><span class="token-limit">16K tokens</span></div>
+      </div>
+
+      <div class="service-row">
+        <div class="service-cell">
+          <span class="method-badge">POST</span>
+          <span class="endpoint-tag">/brief-premium</span>
+        </div>
+        <div class="service-cell"><span class="price-tag">$15.00</span></div>
+        <div class="service-cell"><span class="service-desc">Deep-dive analysis with competitive landscape</span></div>
+        <div class="service-cell"><span class="token-limit">64K tokens</span></div>
+      </div>
+
+      <div class="service-row">
+        <div class="service-cell">
+          <span class="method-badge">POST</span>
+          <span class="endpoint-tag">/analyze</span>
+        </div>
+        <div class="service-cell"><span class="price-tag">$0.01</span></div>
+        <div class="service-cell"><span class="service-desc">Text analysis: sentiment, entities, keywords</span></div>
+        <div class="service-cell"><span class="token-limit">2K tokens</span></div>
+      </div>
+
+      <div class="service-row">
+        <div class="service-cell">
+          <span class="method-badge">POST</span>
+          <span class="endpoint-tag">/trustcheck</span>
+        </div>
+        <div class="service-cell"><span class="price-tag">$0.05</span></div>
+        <div class="service-cell"><span class="service-desc">Trust and reputation verification</span></div>
+        <div class="service-cell"><span class="token-limit">1K tokens</span></div>
+      </div>
+
+      <div class="service-row">
+        <div class="service-cell">
+          <span class="method-badge">POST</span>
+          <span class="endpoint-tag">/summarize-url</span>
+        </div>
+        <div class="service-cell"><span class="price-tag">$0.01</span></div>
+        <div class="service-cell"><span class="service-desc">URL content summarization</span></div>
+        <div class="service-cell"><span class="token-limit">URL content</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Payment Flow ──────────────────────────────────────────────── -->
+<section id="payment">
+  <div class="container">
+    <span class="label">Protocol</span>
+    <h2>Payment Flow (x402)</h2>
+
+    <div class="callout">
+      <span class="callout-icon">&#9432;</span>
+      <div class="callout-body">
+        <strong>x402</strong> is an open standard for HTTP-native micropayments using EIP-712 signed USDC transfers on Base.
+        No custodians, no subscriptions — funds go directly to the recipient wallet on-chain.
+        Learn more at <a href="https://x402.org" target="_blank" rel="noopener">x402.org</a>.
+      </div>
+    </div>
+
+    <div class="flow-steps">
+      <div class="flow-step">
+        <div class="step-number">01</div>
+        <div class="step-content">
+          <div class="step-title">POST to the endpoint</div>
+          <div class="step-desc">
+            Make a normal HTTP POST request. The server responds with
+            <code>HTTP 402 Payment Required</code> and a JSON body describing
+            the payment — amount, recipient address, deadline, and accepted token.
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-number">02</div>
+        <div class="step-content">
+          <div class="step-title">Sign EIP-712 TransferWithAuthorization</div>
+          <div class="step-desc">
+            Using the 402 response data, construct an EIP-712
+            <code>TransferWithAuthorization</code> struct and sign it with your wallet.
+            This authorizes a USDC transfer of exactly the required amount without
+            broadcasting a transaction yet.
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-number">03</div>
+        <div class="step-content">
+          <div class="step-title">Retry with X-Payment header</div>
+          <div class="step-desc">
+            Re-send the identical POST request, this time including the
+            <code>X-Payment</code> header containing a base64-encoded JSON payload
+            with your signature and authorization struct (x402Version, scheme, network, payload).
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-number">04</div>
+        <div class="step-content">
+          <div class="step-title">Receive your result</div>
+          <div class="step-desc">
+            The server verifies the payment via the x402 facilitator at
+            <code>https://x402.org/facilitator</code>, settles the USDC transfer
+            on Base, and returns <code>HTTP 200</code> with your result.
+            Total added latency: typically under 300ms.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SDK ───────────────────────────────────────────────────────── -->
+<section id="sdk">
+  <div class="container">
+    <span class="label">Integration</span>
+    <h2>JavaScript SDK</h2>
+    <p style="margin-bottom: 28px;">
+      Copy-paste this helper to call any Datchi endpoint from your app.
+      Requires <a href="https://viem.sh" target="_blank" rel="noopener">viem</a> for EIP-712 signing.
+      Install with <code style="font-family: var(--mono); font-size: 0.85em; background: var(--bg-code); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px;">npm install viem</code>.
+    </p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-lang">JavaScript (ESM)</span>
+        <button class="copy-code-btn" onclick="copyCode('sdk-code', this)">Copy</button>
+      </div>
+      <pre id="sdk-code"><span class="kw">import</span> { createWalletClient, http } <span class="kw">from</span> <span class="str">'viem'</span>;
+<span class="kw">import</span> { base } <span class="kw">from</span> <span class="str">'viem/chains'</span>;
+<span class="kw">import</span> { privateKeyToAccount } <span class="kw">from</span> <span class="str">'viem/accounts'</span>;
+
+<span class="kw">const</span> <span class="ct">GATEWAY</span> = <span class="str">'https://datchi.example.com'</span>; <span class="cm">// or http://localhost:7402</span>
+<span class="kw">const</span> <span class="ct">USDC</span>    = <span class="str">'0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'</span>;
+
+<span class="kw">async function</span> <span class="fn">callDatchi</span>(endpoint, body, privateKey) {
+  <span class="cm">// Step 1: Get payment requirements</span>
+  <span class="kw">const</span> res402 = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">`${GATEWAY}${endpoint}`</span>, {
+    method: <span class="str">'POST'</span>,
+    headers: { <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span> },
+    body: <span class="ct">JSON</span>.<span class="fn">stringify</span>(body),
+  });
+
+  <span class="kw">if</span> (res402.status !== <span class="num">402</span>) <span class="kw">return await</span> res402.<span class="fn">json</span>();
+
+  <span class="kw">const</span> requirement = <span class="kw">await</span> res402.<span class="fn">json</span>();
+  <span class="kw">const</span> accept      = requirement.accepts[<span class="num">0</span>];
+
+  <span class="cm">// Step 2: Sign payment</span>
+  <span class="kw">const</span> account = <span class="fn">privateKeyToAccount</span>(privateKey);
+  <span class="kw">const</span> nonce   = <span class="str">'0x'</span> + crypto.<span class="fn">getRandomValues</span>(<span class="kw">new</span> <span class="ct">Uint8Array</span>(<span class="num">32</span>))
+    .<span class="fn">reduce</span>((s, b) => s + b.<span class="fn">toString</span>(<span class="num">16</span>).<span class="fn">padStart</span>(<span class="num">2</span>, <span class="str">'0'</span>), <span class="str">''</span>);
+
+  <span class="kw">const</span> now           = <span class="ct">Math</span>.<span class="fn">floor</span>(<span class="ct">Date</span>.<span class="fn">now</span>() / <span class="num">1000</span>);
+  <span class="kw">const</span> authorization = {
+    from:        account.address,
+    to:          accept.payToAddress,
+    value:       accept.maxAmountRequired,
+    validAfter:  <span class="ct">String</span>(now - <span class="num">60</span>),
+    validBefore: <span class="ct">String</span>(now + accept.requiredDeadlineSeconds),
+    nonce,
+  };
+
+  <span class="kw">const</span> domain = {
+    name:              <span class="str">'USD Coin'</span>,
+    version:           <span class="str">'2'</span>,
+    chainId:           <span class="num">8453</span>,
+    verifyingContract: <span class="ct">USDC</span>,
+  };
+
+  <span class="kw">const</span> types = {
+    <span class="ct">TransferWithAuthorization</span>: [
+      { name: <span class="str">'from'</span>,        type: <span class="str">'address'</span> },
+      { name: <span class="str">'to'</span>,          type: <span class="str">'address'</span> },
+      { name: <span class="str">'value'</span>,       type: <span class="str">'uint256'</span> },
+      { name: <span class="str">'validAfter'</span>,  type: <span class="str">'uint256'</span> },
+      { name: <span class="str">'validBefore'</span>, type: <span class="str">'uint256'</span> },
+      { name: <span class="str">'nonce'</span>,       type: <span class="str">'bytes32'</span>  },
+    ],
+  };
+
+  <span class="kw">const</span> signature = <span class="kw">await</span> account.<span class="fn">signTypedData</span>({
+    domain,
+    types,
+    primaryType: <span class="str">'TransferWithAuthorization'</span>,
+    message: authorization,
+  });
+
+  <span class="cm">// Step 3: Retry with payment header</span>
+  <span class="kw">const</span> payment = <span class="fn">btoa</span>(<span class="ct">JSON</span>.<span class="fn">stringify</span>({
+    x402Version: <span class="num">1</span>,
+    scheme:      <span class="str">'exact'</span>,
+    network:     <span class="str">'eip155:8453'</span>,
+    payload:     { signature, authorization },
+  }));
+
+  <span class="kw">const</span> result = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">`${GATEWAY}${endpoint}`</span>, {
+    method:  <span class="str">'POST'</span>,
+    headers: {
+      <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span>,
+      <span class="str">'X-Payment'</span>:    payment,
+    },
+    body: <span class="ct">JSON</span>.<span class="fn">stringify</span>(body),
+  });
+
+  <span class="kw">return await</span> result.<span class="fn">json</span>();
+}
+
+<span class="cm">// Usage</span>
+<span class="kw">const</span> summary = <span class="kw">await</span> <span class="fn">callDatchi</span>(<span class="str">'/summarize'</span>, {
+  content: <span class="str">'Your text here...'</span>
+}, <span class="str">'0xYOUR_PRIVATE_KEY'</span>);</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ── Try Free ──────────────────────────────────────────────────── -->
+<section id="try-free">
+  <div class="container">
+    <span class="label">No payment needed</span>
+    <h2>Try It Free</h2>
+    <p style="margin-bottom: 28px;">
+      The <code style="font-family: var(--mono); font-size: 0.85em; background: var(--bg-code); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px;">/health</code>
+      and <code style="font-family: var(--mono); font-size: 0.85em; background: var(--bg-code); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px;">/info</code>
+      endpoints are always free. Use them to verify the gateway is reachable and to discover
+      available endpoints before sending any payment.
+    </p>
+
+    <div class="free-grid">
+      <div class="free-card">
+        <div class="free-card-header">
+          <div>
+            <span class="method-badge" style="background: rgba(34,197,94,0.1); color: var(--green);">GET</span>
+            <span style="font-family: var(--mono); font-size: 0.85rem; color: var(--text);">/health</span>
+          </div>
+          <span class="free-badge">FREE</span>
+        </div>
+        <div class="curl-block"><span class="kw">curl</span> <span class="str">https://datchi.example.com/health</span></div>
+      </div>
+
+      <div class="free-card">
+        <div class="free-card-header">
+          <div>
+            <span class="method-badge" style="background: rgba(34,197,94,0.1); color: var(--green);">GET</span>
+            <span style="font-family: var(--mono); font-size: 0.85rem; color: var(--text);">/info</span>
+          </div>
+          <span class="free-badge">FREE</span>
+        </div>
+        <div class="curl-block"><span class="kw">curl</span> <span class="str">https://datchi.example.com/info</span></div>
+      </div>
+    </div>
+
+    <div style="margin-top: 24px;">
+      <h3>Test the 402 flow</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span class="code-lang">Shell</span>
+          <button class="copy-code-btn" onclick="copyCode('curl-example', this)">Copy</button>
+        </div>
+        <pre id="curl-example"><span class="cm"># Step 1 — Trigger the 402</span>
+<span class="kw">curl</span> -s -X POST https://datchi.example.com/analyze \
+  -H <span class="str">'Content-Type: application/json'</span> \
+  -d <span class="str">'{"content":"Hello, world!"}'</span> | jq .
+
+<span class="cm"># You will receive a 402 with payment requirements:</span>
+<span class="cm"># {</span>
+<span class="cm">#   "accepts": [{</span>
+<span class="cm">#     "scheme": "exact",</span>
+<span class="cm">#     "network": "eip155:8453",</span>
+<span class="cm">#     "maxAmountRequired": "10000",   // $0.01 in USDC (6 decimals)</span>
+<span class="cm">#     "payToAddress": "0xad045...",</span>
+<span class="cm">#     "requiredDeadlineSeconds": 300</span>
+<span class="cm">#   }]</span>
+<span class="cm"># }</span>
+
+<span class="cm"># Step 3 — Retry with signed payment (use the SDK above)</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ────────────────────────────────────────────────────── -->
+<footer>
+  <div class="container">
+    <div class="footer-left">
+      Powered by <strong>Datchi Automaton</strong> &mdash; USDC on Base via x402
+    </div>
+    <div class="footer-right">
+      Gateway: <a href="https://datchi.example.com">https://datchi.example.com</a>
+      &nbsp;&middot;&nbsp;
+      <a href="/api-docs">API Docs (JSON)</a>
+    </div>
+  </div>
+</footer>
+
+<!-- ── Toast ─────────────────────────────────────────────────────── -->
+<div id="toast">Copied to clipboard</div>
+
+<script>
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg || 'Copied to clipboard';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2000);
+  }
+
+  function copyWallet() {
+    const addr = document.getElementById('wallet-addr').textContent.trim();
+    navigator.clipboard.writeText(addr).then(() => showToast('Wallet address copied'));
+  }
+
+  function copyCode(id, btn) {
+    const el = document.getElementById(id);
+    const text = el.innerText || el.textContent;
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Code copied');
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+    });
+  }
+</script>
+
+</body>
+</html>

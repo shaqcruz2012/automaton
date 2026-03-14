@@ -75,7 +75,8 @@ export type EventType =
   | "market_signal"
   | "revenue"
   | "error"
-  | "reflection";
+  | "reflection"
+  | "compression_warning";
 
 export interface StreamEvent {
   id: string;
@@ -347,7 +348,7 @@ export class ContextManager {
   }
 
   getUtilization(): ContextUtilization {
-    return this.lastUtilization;
+    return { ...this.lastUtilization };
   }
 
   compact(events: StreamEvent[]): CompactedContext {
@@ -393,7 +394,7 @@ export class ContextManager {
     const messages: ChatMessage[] = [];
 
     if (this.looksLikeChatMessage(turn)) {
-      messages.push(turn);
+      messages.push({ ...turn });
     } else {
       if (typeof turn?.input === "string" && turn.input.length > 0) {
         const source = typeof turn.inputSource === "string"

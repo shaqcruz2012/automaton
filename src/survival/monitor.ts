@@ -47,7 +47,7 @@ export async function checkResources(
       usdcBalance = result.balanceUsd;
       balanceCents = result.balanceCents;
     }
-  } catch {}
+  } catch (err) { console.warn("[monitor] Balance fetch failed:", err instanceof Error ? err.message : err); }
 
   // creditsCents now equals the USDC balance in cents
   const creditsCents = balanceCents;
@@ -71,7 +71,7 @@ export async function checkResources(
   let dailyBurnCents = 0;
   try {
     dailyBurnCents = estimateDailyBurnCents(db.raw);
-  } catch {}
+  } catch (err) { console.warn("[monitor] Burn rate estimation failed:", err instanceof Error ? err.message : err); }
 
   const tier = getSurvivalTierFromBalance(creditsCents, dailyBurnCents);
   const prevTierStr = db.getKV("current_tier");

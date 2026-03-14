@@ -170,11 +170,22 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     name: "Groq",
     baseUrl: "https://api.groq.com/openai/v1",
     apiKeyEnvVar: "GROQ_API_KEY",
-    pool: "paid",
+    pool: "free_cloud",
     models: [
       {
         id: "llama-3.3-70b-versatile",
         tier: "reasoning",
+        contextWindow: 131072,
+        maxOutputTokens: 8192,
+        costPerInputToken: 0.2,
+        costPerOutputToken: 0.2,
+        supportsTools: true,
+        supportsVision: false,
+        supportsStreaming: true,
+      },
+      {
+        id: "llama-3.3-70b-versatile",
+        tier: "fast",
         contextWindow: 131072,
         maxOutputTokens: 8192,
         costPerInputToken: 0.2,
@@ -244,7 +255,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     maxRequestsPerMinute: 2,
     maxTokensPerMinute: 500000,
     priority: 5,
-    enabled: true,
+    enabled: false,
   },
   {
     id: "local",
@@ -351,8 +362,8 @@ export class ProviderRegistry {
       if (typeof configuredEmergencyStop === "number" && configuredEmergencyStop > 0) {
         emergencyStopCredits = configuredEmergencyStop;
       }
-    } catch {
-      // Keep defaults if config is invalid.
+    } catch (err) {
+      console.warn(`[ProviderRegistry] Failed to load config:`, err instanceof Error ? err.message : err);
     }
 
     return new ProviderRegistry(providers, tierDefaults, emergencyStopCredits);
@@ -383,7 +394,10 @@ export class ProviderRegistry {
         continue;
       }
 
-      results.push(this.buildResolvedModel(provider, model));
+      const resolved = this.buildResolvedModel(provider, model);
+      if (resolved) {
+        results.push(resolved);
+      }
     }
 
     if (results.length > 0) {
@@ -401,7 +415,10 @@ export class ProviderRegistry {
           continue;
         }
 
-        results.push(this.buildResolvedModel(provider, model));
+        const resolved = this.buildResolvedModel(provider, model);
+        if (resolved) {
+          results.push(resolved);
+        }
       }
     }
 
@@ -423,7 +440,11 @@ export class ProviderRegistry {
       throw new Error(`Unknown model '${modelId}' on provider '${providerId}'`);
     }
 
-    return this.buildResolvedModel(provider, model);
+    const resolved = this.buildResolvedModel(provider, model);
+    if (!resolved) {
+      throw new Error(`API key not configured for provider '${providerId}' (env: ${provider.apiKeyEnvVar})`);
+    }
+    return resolved;
   }
 
   getProviders(): ProviderConfig[] {
@@ -483,8 +504,11 @@ export class ProviderRegistry {
     return orderedProviders;
   }
 
-  private buildResolvedModel(provider: ProviderConfig, model: ModelConfig): ResolvedModel {
+  private buildResolvedModel(provider: ProviderConfig, model: ModelConfig): ResolvedModel | null {
     const apiKey = this.resolveApiKey(provider);
+    if (apiKey === null) {
+      return null;
+    }
 
     // Anthropic uses a native API format, not OpenAI-compatible.
     // Do not create an OpenAI client for Anthropic — the inference client
@@ -504,7 +528,7 @@ export class ProviderRegistry {
     };
   }
 
-  private resolveApiKey(provider: ProviderConfig): string {
+  private resolveApiKey(provider: ProviderConfig): string | null {
     const configured = process.env[provider.apiKeyEnvVar];
     if (typeof configured === "string" && configured.length > 0) {
       return configured;
@@ -514,7 +538,7 @@ export class ProviderRegistry {
       return "local";
     }
 
-    return `missing-${provider.apiKeyEnvVar.toLowerCase()}`;
+    return null;
   }
 
   private isProviderActive(provider: ProviderConfig): boolean {

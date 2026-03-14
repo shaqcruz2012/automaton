@@ -71,7 +71,7 @@ import { ProviderRegistry } from "../inference/provider-registry.js";
 import { UnifiedInferenceClient } from "../inference/inference-client.js";
 
 const logger = createLogger("loop");
-const MAX_TOOL_CALLS_PER_TURN = 10;
+const MAX_TOOL_CALLS_PER_TURN = 15;
 const MAX_CONSECUTIVE_ERRORS = 5;
 const MAX_REPETITIVE_TURNS = 3;
 
@@ -158,18 +158,7 @@ export async function runAgentLoop(
         process.env.GROQ_API_KEY = config.groqApiKey;
       }
       // Cascade inference provider keys (free_cloud pool)
-      if (config.cerebrasApiKey && !process.env.CEREBRAS_API_KEY) {
-        process.env.CEREBRAS_API_KEY = config.cerebrasApiKey;
-      }
-      if (config.sambanovaApiKey && !process.env.SAMBANOVA_API_KEY) {
-        process.env.SAMBANOVA_API_KEY = config.sambanovaApiKey;
-      }
-      if (config.togetherApiKey && !process.env.TOGETHER_API_KEY) {
-        process.env.TOGETHER_API_KEY = config.togetherApiKey;
-      }
-      if (config.hfApiKey && !process.env.HF_API_KEY) {
-        process.env.HF_API_KEY = config.hfApiKey;
-      }
+      // NOTE: cerebras, sambanova, together, huggingface bridging removed — providers not in active registry.
       if (config.mistralApiKey && !process.env.MISTRAL_API_KEY) {
         process.env.MISTRAL_API_KEY = config.mistralApiKey;
       }
@@ -230,6 +219,7 @@ export async function runAgentLoop(
         inference: workerInference,
         conway,
         workerId: `pool-${identity.name}`,
+        maxWorkers: 6,
       });
 
       orchestrator = new Orchestrator({
@@ -442,7 +432,7 @@ export async function runAgentLoop(
   const MAX_IDLE_TURNS = 3; // Force sleep after N turns with no real work
   let idleTurnCount = 0;
 
-  const maxCycleTurns = config.maxTurnsPerCycle ?? 10;
+  const maxCycleTurns = config.maxTurnsPerCycle ?? 25;
   let cycleTurnCount = 0;
 
   // Track turns within THIS session only — prevents cross-session contamination
@@ -677,7 +667,7 @@ export async function runAgentLoop(
 
       // Inject memory block after system prompt, before conversation history
       if (memoryBlock) {
-        messages.splice(1, 0, { role: "system", content: memoryBlock });
+        messages = [messages[0], { role: "system", content: memoryBlock }, ...messages.slice(1)];
       }
 
       if (orchestrator) {
@@ -719,9 +709,9 @@ export async function runAgentLoop(
       // At 32K tokens/call: ~4.3s cooldown (14 calls/min = 448K tokens/min).
       // Minimum 2s floor. If we hit 429, the retry logic handles it.
       const INPUT_TOKENS_PER_MINUTE_LIMIT = 430_000; // 95% of Tier 2's 450K ITPM
-      const estimatedTokens = lastInputTokenCount || 16_000;
+      const estimatedTokens = lastInputTokenCount ?? 16_000;
       const adaptiveCooldownMs = Math.ceil((estimatedTokens / INPUT_TOKENS_PER_MINUTE_LIMIT) * 60_000);
-      const MIN_INFERENCE_INTERVAL_MS = Math.max(2_000, adaptiveCooldownMs);
+      const MIN_INFERENCE_INTERVAL_MS = Math.max(1_000, adaptiveCooldownMs);
       const timeSinceLastInference = Date.now() - lastInferenceTimestamp;
       if (timeSinceLastInference < MIN_INFERENCE_INTERVAL_MS) {
         const waitMs = MIN_INFERENCE_INTERVAL_MS - timeSinceLastInference;
@@ -752,7 +742,7 @@ export async function runAgentLoop(
         (msgs, opts) => inference.chat(msgs, { ...opts, tools: inferenceTools }),
       );
       lastInferenceTimestamp = Date.now();
-      lastInputTokenCount = routerResult.inputTokens || 0; // Track for adaptive cooldown
+      lastInputTokenCount = routerResult.inputTokens ?? 0; // Track for adaptive cooldown
       emptyResponseStreak = 0; // Reset on successful inference
       rateLimitStreak = 0; // Reset on successful inference
 
@@ -796,8 +786,8 @@ export async function runAgentLoop(
                 },
               });
             }
-          } catch {
-            // Not valid JSON, skip
+          } catch (parseErr) {
+            log(config, `[TOOL-RECOVERY] Failed to parse JSON block: ${(parseErr as Error).message}`);
           }
         }
         if (parsedCalls.length > 0) {
@@ -832,7 +822,7 @@ export async function runAgentLoop(
         timestamp: new Date().toISOString(),
         state: db.getAgentState(),
         input: currentInput?.content,
-        inputSource: currentInput?.source as any,
+        inputSource: currentInput?.source as InputSource | undefined,
         thinking: typeof response.message.content === "string" ? response.message.content : JSON.stringify(response.message.content ?? ""),
         toolCalls: [],
         tokenUsage: response.usage,

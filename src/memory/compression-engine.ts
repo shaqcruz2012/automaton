@@ -391,6 +391,9 @@ export class CompressionEngine {
       ],
     });
 
+    if (!response?.content) {
+      return buildHeuristicSummary(events);
+    }
     return response.content.trim();
   }
 
@@ -507,6 +510,9 @@ export class CompressionEngine {
       ],
     });
 
+    if (!response?.content) {
+      return buildHeuristicSummary(events);
+    }
     return response.content.trim();
   }
 
@@ -554,7 +560,7 @@ export class CompressionEngine {
 
     this.totalEmergencyTruncations += 1;
     this.eventStream.append({
-      type: "compression_warning" as unknown as EventType,
+      type: "compression_warning",
       agentAddress: this.pickAgentAddress(allEvents),
       goalId: null,
       taskId: null,
@@ -573,7 +579,7 @@ export class CompressionEngine {
   private async logCompressionError(stage: number, error: unknown): Promise<void> {
     const details = error instanceof Error ? error.message : String(error);
     this.eventStream.append({
-      type: "compression_error" as unknown as EventType,
+      type: "error" as EventType,
       agentAddress: this.pickAgentAddress(this.getAllCompressionEvents()),
       goalId: null,
       taskId: null,
@@ -588,7 +594,7 @@ export class CompressionEngine {
 
   private async logCompressionMetrics(metrics: CompressionMetrics): Promise<void> {
     this.eventStream.append({
-      type: "compression" as unknown as EventType,
+      type: "reflection" as EventType,
       agentAddress: this.pickAgentAddress(this.getAllCompressionEvents()),
       goalId: null,
       taskId: null,

@@ -40,22 +40,35 @@ function isCascadable400(errMsg: string): boolean {
   if (!/\b400\b/.test(errMsg)) return false;
   // Message-ordering errors fail identically on every provider — don't cascade
   if (/message.order|role.*order|last.role|Expected.*role/i.test(errMsg)) return false;
+  // Groq tool_use_failed: model generates XML-style function calls instead of JSON.
+  // Always cascade — retrying the same provider won't fix the model's output format.
+  if (/tool_use_failed|failed_generation|Failed to call a function/i.test(errMsg)) return true;
   // Only cascade on message-format / validation errors, NOT auth issues
   const validationPatterns = /format|expected|invalid.*content|validation|schema|field|parameter/i;
   const authPatterns = /api.key|auth|token|credential|unauthorized|forbidden/i;
   return validationPatterns.test(errMsg) && !authPatterns.test(errMsg);
 }
 
-/** Cache P&L for 5 minutes to avoid constant DB queries */
-const PNL_CACHE_TTL_MS = 5 * 60 * 1000;
+/** Cache P&L for 2 minutes to avoid constant DB queries */
+const PNL_CACHE_TTL_MS = 2 * 60 * 1000;
 
-/** Timeout for direct provider calls */
+/** Default timeout for direct provider calls (used as fallback) */
 const PROVIDER_TIMEOUT_MS = 60_000;
+
+/**
+ * Compute a dynamic timeout that scales with request size.
+ * - 15s minimum (small safety checks ~512 tokens)
+ * - 2ms per requested token
+ * - 120s maximum (large reasoning tasks ~8K tokens)
+ */
+function computeTimeoutMs(maxTokens: number | undefined): number {
+  return Math.min(120_000, Math.max(15_000, 15_000 + (maxTokens ?? 4096) * 2));
+}
 
 /** Circuit breaker: disable provider after this many consecutive failures */
 const CB_FAILURE_THRESHOLD = 3;
 /** Circuit breaker: keep provider disabled for this long */
-const CB_DISABLE_MS = 5 * 60_000;
+const CB_DISABLE_MS = 2 * 60_000;
 
 interface CircuitBreakerState {
   failures: number;
@@ -171,7 +184,7 @@ async function callProviderDirect(
       ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+    signal: AbortSignal.timeout(computeTimeoutMs(maxTokens)),
   });
 
   if (!response.ok) {
@@ -193,13 +206,11 @@ async function callProviderDirect(
       ? rawContent.map((p: any) => p.text ?? p.content ?? "").join("")
       : String(rawContent ?? "");
   const toolCalls = choice?.message?.tool_calls?.map((tc: any) => {
-    // Ollama may return undefined/null tool call IDs for some models.
-    // Generate a random ID as fallback so downstream code always has one.
-    const id = tc.id
-      ? (typeof tc.id === "string" && tc.id.length < 9
-        ? tc.id.replace(/[^a-zA-Z0-9]/g, "").padEnd(9, "0")
-        : tc.id)
-      : "call_" + Math.random().toString(36).slice(2, 11);
+    // Ollama may return undefined/null/short/invalid tool call IDs.
+    // Normalize to a 9-char alphanumeric ID so downstream code always has a valid one.
+    const generateId = () => "call_" + Math.random().toString(36).slice(2, 11);
+    const normalized = (tc.id || "").toString().replace(/[^a-zA-Z0-9]/g, "").slice(0, 9).padEnd(9, "0");
+    const id = normalized && normalized !== "000000000" ? normalized : generateId();
 
     // Ollama may return function.arguments as an object instead of a string.
     const rawArgs = tc.function?.arguments;
@@ -260,13 +271,12 @@ export class CascadeController {
 
   /** Record a failure. Opens circuit after CB_FAILURE_THRESHOLD consecutive failures. */
   private recordFailure(providerId: string): void {
-    const state = this.circuitBreaker.get(providerId) ?? { failures: 0, disabledUntil: 0 };
-    state.failures += 1;
-    if (state.failures >= CB_FAILURE_THRESHOLD) {
-      state.disabledUntil = Date.now() + CB_DISABLE_MS;
-      logger.warn(`Cascade: circuit breaker OPEN for ${providerId} (${state.failures} failures, disabled for ${CB_DISABLE_MS / 1000}s)`);
+    const prev = this.circuitBreaker.get(providerId) ?? { failures: 0, disabledUntil: 0 };
+    const failures = prev.failures + 1;
+    if (failures >= CB_FAILURE_THRESHOLD) {
+      logger.warn(`Cascade: circuit breaker OPEN for ${providerId} (${failures} failures, disabled for ${CB_DISABLE_MS / 1000}s)`);
     }
-    this.circuitBreaker.set(providerId, state);
+    this.circuitBreaker.set(providerId, { failures, disabledUntil: failures >= CB_FAILURE_THRESHOLD ? Date.now() + CB_DISABLE_MS : prev.disabledUntil });
   }
 
   /** Record a success. Resets the circuit breaker for this provider. */
@@ -276,7 +286,7 @@ export class CascadeController {
 
   /**
    * Compute 24h rolling P&L from the accounting ledger.
-   * Cached for 5 minutes.
+   * Cached for 2 minutes.
    */
   private getRollingPnl(): { netCents: number; revenueCents: number; expenseCents: number } {
     const now = Date.now();
@@ -309,16 +319,24 @@ export class CascadeController {
   }
 
   /**
-   * Select the starting pool based on survival tier and profitability.
+   * Select the starting pool based on survival tier, profitability, and task type.
    */
-  selectPool(tier: SurvivalTier): CascadePool {
+  selectPool(tier: SurvivalTier, taskType?: string): CascadePool {
     // Dead/critical: zero-cost local inference only (survive at all costs)
     if (tier === "dead" || tier === "critical") {
       return "local";
     }
 
-    // All other tiers: Claude API is primary (user has funded Tier 2 credits)
-    logger.debug(`Cascade: tier=${tier} -> PAID pool (Claude Tier 2)`);
+    // Groq free tier only works for small-context tasks (heartbeat_triage ~5K tokens).
+    // Agent turns accumulate large conversation context that exceeds Groq's TPM limits,
+    // causing 413 on every attempt. Route only triage to free_cloud; everything else
+    // goes straight to paid to avoid wasted cascade latency.
+    if (taskType === "heartbeat_triage") {
+      logger.debug(`Cascade: tier=${tier}, task=${taskType} -> FREE_CLOUD pool (Groq triage)`);
+      return "free_cloud";
+    }
+
+    logger.debug(`Cascade: tier=${tier}, task=${taskType} -> PAID pool (skip Groq for large context)`);
     return "paid";
   }
 
@@ -374,9 +392,14 @@ export class CascadeController {
         // tool calls instead of outputting JSON-as-text. Triage needs read_file;
         // agent_turn needs exec/check_credits/write_file/sleep. Only planning
         // and summarization should allow text-only responses.
+        //
+        // EXCEPTION: Groq's Llama models generate malformed XML-style function calls
+        // (e.g. <function=read_file{...}>) when tool_choice is "required".
+        // Use "auto" for Groq — it still makes tool calls, just doesn't guarantee them.
         const forceTools = (request.taskType === "heartbeat_triage" || request.taskType === "agent_turn")
           && request.tools?.length;
-        const toolChoice = forceTools
+        const isGroqLlama = provider.id === "groq";
+        const toolChoice = (forceTools && !isGroqLlama)
           ? "required" as const
           : "auto" as const;
         logger.info(`Cascade: trying ${provider.id} (${model.id})`);
@@ -413,6 +436,15 @@ export class CascadeController {
           continue;
         }
 
+        // Groq tool_use_failed: model generates XML instead of JSON tool calls.
+        // This is a model limitation, not a provider outage — don't circuit-break.
+        const isToolFormatError = /tool_use_failed|failed_generation|Failed to call a function/i.test(errMsg);
+        if (isToolFormatError) {
+          logger.warn(`Cascade: ${provider.id} tool format error (not circuit-breaking): ${errMsg.slice(0, 200)}`);
+          lastError = error;
+          continue;
+        }
+
         this.recordFailure(provider.id);
         lastError = error;
 
@@ -442,7 +474,7 @@ export class CascadeController {
     router: InferenceRouter,
     inferenceChat: (messages: any[], options: any) => Promise<any>,
   ): Promise<InferenceResult> {
-    const startingPool = this.selectPool(request.tier);
+    const startingPool = this.selectPool(request.tier, request.taskType);
     let currentPool: CascadePool | null = startingPool;
     let lastErrorMsg = "";
     const triedPools = new Set<CascadePool>();
@@ -482,6 +514,12 @@ export class CascadeController {
         if (isRetryable) {
           const next = getNextPool(currentPool);
           if (next) {
+            // Guard: dead/critical tiers must never cascade into paid APIs
+            if (next === "paid" && (request.tier === "dead" || request.tier === "critical")) {
+              throw new CascadeExhaustedError(
+                `Cascade exhausted free providers for tier=${request.tier}, refusing to cascade to paid APIs`,
+              );
+            }
             logger.warn(`Cascade: ${currentPool} pool exhausted (${errMsg.slice(0, 200)}), falling back to ${next}`);
             currentPool = next;
             continue;

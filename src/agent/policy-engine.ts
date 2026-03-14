@@ -47,7 +47,17 @@ export class PolicyEngine {
 
     for (const rule of applicableRules) {
       rulesEvaluated.push(rule.id);
-      const result = rule.evaluate(request);
+
+      let result: PolicyRuleResult | null;
+      try {
+        result = rule.evaluate(request);
+      } catch (err) {
+        console.error("Policy rule evaluation failed", {
+          ruleId: rule.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        continue;
+      }
 
       if (result === null) {
         continue;
@@ -70,7 +80,7 @@ export class PolicyEngine {
     }
 
     const argsHash = createHash("sha256")
-      .update(JSON.stringify(request.args))
+      .update(JSON.stringify(request.args ?? {}))
       .digest("hex");
 
     const authorityLevel = PolicyEngine.deriveAuthorityLevel(
@@ -112,8 +122,12 @@ export class PolicyEngine {
 
     try {
       insertPolicyDecision(this.db, row);
-    } catch {
-      // Don't let logging failures block tool execution
+    } catch (err) {
+      console.error("Failed to log policy decision", {
+        error: err instanceof Error ? err.message : String(err),
+        toolName: decision.toolName,
+        decision: decision.action,
+      });
     }
   }
 

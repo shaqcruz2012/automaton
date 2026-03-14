@@ -9,24 +9,24 @@ import type { PrivateKeyAccount, Address } from "viem";
 // ─── Identity ────────────────────────────────────────────────────
 
 export interface AutomatonIdentity {
-  name: string;
-  address: Address;
-  account: PrivateKeyAccount;
-  creatorAddress: Address;
-  sandboxId: string;
-  apiKey: string;
-  createdAt: string;
+  readonly name: string;
+  readonly address: Address;
+  readonly account: PrivateKeyAccount;
+  readonly creatorAddress: Address;
+  readonly sandboxId: string;
+  readonly apiKey: string;
+  readonly createdAt: string;
 }
 
 export interface WalletData {
-  privateKey: `0x${string}`;
-  createdAt: string;
+  readonly privateKey: `0x${string}`;
+  readonly createdAt: string;
 }
 
 export interface ProvisionResult {
-  apiKey: string;
-  walletAddress: string;
-  keyPrefix: string;
+  readonly apiKey: string;
+  readonly walletAddress: string;
+  readonly keyPrefix: string;
 }
 
 // ─── Configuration ───────────────────────────────────────────────
@@ -55,7 +55,7 @@ export interface AutomatonConfig {
   agentId?: string;
   maxChildren: number;
   maxTurnsPerCycle?: number;
-  /** 子沙盒内存配置 (MB)，默认 1024 */
+  /** Child sandbox memory config (MB), default 1024 */
   childSandboxMemoryMb?: number;
   parentAddress?: Address;
   socialRelayUrl?: string;
@@ -96,8 +96,8 @@ export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
   logLevel: "info",
   version: "0.2.1",
   skillsDir: "~/.automaton/skills",
-  maxChildren: 3,
-  maxTurnsPerCycle: 10,
+  maxChildren: 6,
+  maxTurnsPerCycle: 25,
   childSandboxMemoryMb: 1024,
   socialRelayUrl: undefined,
 };
@@ -134,17 +134,17 @@ export type InputSource =
 
 export interface ToolCallResult {
   id: string;
-  name: string;
-  arguments: Record<string, unknown>;
-  result: string;
-  durationMs: number;
-  error?: string;
+  readonly name: string;
+  readonly arguments: Record<string, unknown>;
+  readonly result: string;
+  readonly durationMs: number;
+  readonly error?: string;
 }
 
 export interface TokenUsage {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly totalTokens: number;
 }
 
 // ─── Tool System ─────────────────────────────────────────────────
@@ -174,12 +174,12 @@ export type ToolCategory =
   | "memory";
 
 export interface ToolContext {
-  identity: AutomatonIdentity;
-  config: AutomatonConfig;
-  db: AutomatonDatabase;
-  conway: ConwayClient;
-  inference: InferenceClient;
-  social?: SocialClientInterface;
+  readonly identity: AutomatonIdentity;
+  readonly config: AutomatonConfig;
+  readonly db: AutomatonDatabase;
+  readonly conway: ConwayClient;
+  readonly inference: InferenceClient;
+  readonly social?: SocialClientInterface;
 }
 
 export interface SocialClientInterface {
@@ -189,13 +189,13 @@ export interface SocialClientInterface {
 }
 
 export interface InboxMessage {
-  id: string;
-  from: string;
-  to: string;
-  content: string;
-  signedAt: string;
-  createdAt: string;
-  replyTo?: string;
+  readonly id: string;
+  readonly from: string;
+  readonly to: string;
+  readonly content: string;
+  readonly signedAt: string;
+  readonly createdAt: string;
+  readonly replyTo?: string;
 }
 
 // ─── Heartbeat ───────────────────────────────────────────────────
@@ -217,15 +217,15 @@ export interface HeartbeatConfig {
 }
 
 export interface HeartbeatPingPayload {
-  name: string;
-  address: Address;
-  state: AgentState;
-  creditsCents: number;
-  usdcBalance: number;
-  uptimeSeconds: number;
-  version: string;
-  sandboxId: string;
-  timestamp: string;
+  readonly name: string;
+  readonly address: Address;
+  readonly state: AgentState;
+  readonly creditsCents: number;
+  readonly usdcBalance: number;
+  readonly uptimeSeconds: number;
+  readonly version: string;
+  readonly sandboxId: string;
+  readonly timestamp: string;
 }
 
 // ─── Financial ───────────────────────────────────────────────────
@@ -239,20 +239,20 @@ export interface FinancialState {
 export type SurvivalTier = "dead" | "critical" | "low_compute" | "normal" | "high";
 
 export const SURVIVAL_THRESHOLDS = {
-  high: 500, // > $5.00 in cents
-  normal: 50, // > $0.50 in cents
-  low_compute: 10, // $0.10 - $0.50
-  critical: 0, // >= $0.00 (zero credits = critical, agent stays alive)
+  high: 2000, // > $20.00 in cents
+  normal: 500, // > $5.00 in cents
+  low_compute: 100, // $1.00 - $5.00
+  critical: 10, // $0.10 - $1.00
   dead: -1, // negative balance = truly dead
 } as const;
 
 export interface Transaction {
-  id: string;
-  type: TransactionType;
-  amountCents?: number;
-  balanceAfterCents?: number;
-  description: string;
-  timestamp: string;
+  readonly id: string;
+  readonly type: TransactionType;
+  readonly amountCents?: number;
+  readonly balanceAfterCents?: number;
+  readonly description: string;
+  readonly timestamp: string;
 }
 
 export type TransactionType =
@@ -267,13 +267,13 @@ export type TransactionType =
 // ─── Self-Modification ───────────────────────────────────────────
 
 export interface ModificationEntry {
-  id: string;
-  timestamp: string;
-  type: ModificationType;
-  description: string;
-  filePath?: string;
-  diff?: string;
-  reversible: boolean;
+  readonly id: string;
+  readonly timestamp: string;
+  readonly type: ModificationType;
+  readonly description: string;
+  readonly filePath?: string;
+  readonly diff?: string;
+  readonly reversible: boolean;
 }
 
 export type ModificationType =
@@ -305,16 +305,16 @@ export type SanitizationMode =
   | "skill_instruction";  // Strip tool call syntax, add framing
 
 export interface SanitizedInput {
-  content: string;
-  blocked: boolean;
-  threatLevel: ThreatLevel;
-  checks: InjectionCheck[];
+  readonly content: string;
+  readonly blocked: boolean;
+  readonly threatLevel: ThreatLevel;
+  readonly checks: InjectionCheck[];
 }
 
 export interface InjectionCheck {
-  name: string;
-  detected: boolean;
-  details?: string;
+  readonly name: string;
+  readonly detected: boolean;
+  readonly details?: string;
 }
 
 // ─── Inference ───────────────────────────────────────────────────
@@ -328,21 +328,21 @@ export interface ChatMessage {
 }
 
 export interface InferenceToolCall {
-  id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string;
+  readonly id: string;
+  readonly type: "function";
+  readonly function: {
+    readonly name: string;
+    readonly arguments: string;
   };
 }
 
 export interface InferenceResponse {
-  id: string;
-  model: string;
-  message: ChatMessage;
-  toolCalls?: InferenceToolCall[];
-  usage: TokenUsage;
-  finishReason: string;
+  readonly id: string;
+  readonly model: string;
+  readonly message: ChatMessage;
+  readonly toolCalls?: InferenceToolCall[];
+  readonly usage: TokenUsage;
+  readonly finishReason: string;
 }
 
 export interface InferenceOptions {
@@ -354,11 +354,11 @@ export interface InferenceOptions {
 }
 
 export interface InferenceToolDefinition {
-  type: "function";
-  function: {
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
+  readonly type: "function";
+  readonly function: {
+    readonly name: string;
+    readonly description: string;
+    readonly parameters: Record<string, unknown>;
   };
 }
 
@@ -409,15 +409,15 @@ export interface ConwayClient {
 }
 
 export interface ExecResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number;
 }
 
 export interface PortInfo {
-  port: number;
-  publicUrl: string;
-  sandboxId: string;
+  readonly port: number;
+  readonly publicUrl: string;
+  readonly sandboxId: string;
 }
 
 export interface CreateSandboxOptions {
@@ -429,64 +429,64 @@ export interface CreateSandboxOptions {
 }
 
 export interface SandboxInfo {
-  id: string;
-  status: string;
-  region: string;
-  vcpu: number;
-  memoryMb: number;
-  diskGb: number;
-  terminalUrl?: string;
-  createdAt: string;
+  readonly id: string;
+  readonly status: string;
+  readonly region: string;
+  readonly vcpu: number;
+  readonly memoryMb: number;
+  readonly diskGb: number;
+  readonly terminalUrl?: string;
+  readonly createdAt: string;
 }
 
 export interface PricingTier {
-  name: string;
-  vcpu: number;
-  memoryMb: number;
-  diskGb: number;
-  monthlyCents: number;
+  readonly name: string;
+  readonly vcpu: number;
+  readonly memoryMb: number;
+  readonly diskGb: number;
+  readonly monthlyCents: number;
 }
 
 export interface CreditTransferResult {
-  transferId: string;
-  status: string;
-  toAddress: string;
-  amountCents: number;
-  balanceAfterCents?: number;
+  readonly transferId: string;
+  readonly status: string;
+  readonly toAddress: string;
+  readonly amountCents: number;
+  readonly balanceAfterCents?: number;
 }
 
 // ─── Domains ──────────────────────────────────────────────────────
 
 export interface DomainSearchResult {
-  domain: string;
-  available: boolean;
-  registrationPrice?: number;
-  renewalPrice?: number;
-  currency?: string;
+  readonly domain: string;
+  readonly available: boolean;
+  readonly registrationPrice?: number;
+  readonly renewalPrice?: number;
+  readonly currency?: string;
 }
 
 export interface DomainRegistration {
-  domain: string;
-  status: string;
-  expiresAt?: string;
-  transactionId?: string;
+  readonly domain: string;
+  readonly status: string;
+  readonly expiresAt?: string;
+  readonly transactionId?: string;
 }
 
 export interface DnsRecord {
-  id: string;
-  type: string;
-  host: string;
-  value: string;
-  ttl?: number;
-  distance?: number;
+  readonly id: string;
+  readonly type: string;
+  readonly host: string;
+  readonly value: string;
+  readonly ttl?: number;
+  readonly distance?: number;
 }
 
 export interface ModelInfo {
-  id: string;
-  provider: string;
-  pricing: {
-    inputPerMillion: number;
-    outputPerMillion: number;
+  readonly id: string;
+  readonly provider: string;
+  readonly pricing: {
+    readonly inputPerMillion: number;
+    readonly outputPerMillion: number;
   };
 }
 
@@ -519,34 +519,34 @@ export interface PolicyRule {
 }
 
 export interface PolicyRequest {
-  tool: AutomatonTool;
-  args: Record<string, unknown>;
-  context: ToolContext;
-  turnContext: {
-    inputSource: InputSource | undefined;
-    turnToolCallCount: number;
-    sessionSpend: SpendTrackerInterface;
+  readonly tool: AutomatonTool;
+  readonly args: Record<string, unknown>;
+  readonly context: ToolContext;
+  readonly turnContext: {
+    readonly inputSource: InputSource | undefined;
+    readonly turnToolCallCount: number;
+    readonly sessionSpend: SpendTrackerInterface;
   };
 }
 
 export interface PolicyRuleResult {
-  rule: string;
-  action: PolicyAction;
-  reasonCode: string;
-  humanMessage: string;
+  readonly rule: string;
+  readonly action: PolicyAction;
+  readonly reasonCode: string;
+  readonly humanMessage: string;
 }
 
 export interface PolicyDecision {
-  action: PolicyAction;
-  reasonCode: string;
-  humanMessage: string;
-  riskLevel: RiskLevel;
-  authorityLevel: AuthorityLevel;
-  toolName: string;
-  argsHash: string;
-  rulesEvaluated: string[];
-  rulesTriggered: string[];
-  timestamp: string;
+  readonly action: PolicyAction;
+  readonly reasonCode: string;
+  readonly humanMessage: string;
+  readonly riskLevel: RiskLevel;
+  readonly authorityLevel: AuthorityLevel;
+  readonly toolName: string;
+  readonly argsHash: string;
+  readonly rulesEvaluated: string[];
+  readonly rulesTriggered: string[];
+  readonly timestamp: string;
 }
 
 export interface SpendTrackerInterface {
@@ -559,20 +559,20 @@ export interface SpendTrackerInterface {
 }
 
 export interface SpendEntry {
-  toolName: string;
-  amountCents: number;
-  recipient?: string;
-  domain?: string;
-  category: SpendCategory;
+  readonly toolName: string;
+  readonly amountCents: number;
+  readonly recipient?: string;
+  readonly domain?: string;
+  readonly category: SpendCategory;
 }
 
 export interface LimitCheckResult {
-  allowed: boolean;
-  reason?: string;
-  currentHourlySpend: number;
-  currentDailySpend: number;
-  limitHourly: number;
-  limitDaily: number;
+  readonly allowed: boolean;
+  readonly reason?: string;
+  readonly currentHourlySpend: number;
+  readonly currentDailySpend: number;
+  readonly limitHourly: number;
+  readonly limitDaily: number;
 }
 
 export interface TreasuryPolicy {
@@ -589,16 +589,16 @@ export interface TreasuryPolicy {
 }
 
 export const DEFAULT_TREASURY_POLICY: TreasuryPolicy = {
-  maxSingleTransferCents: 200,         // $2 max per transfer (PoC budget)
-  maxHourlyTransferCents: 500,         // $5 max per hour
-  maxDailyTransferCents: 1000,         // $10 max per day
-  minimumReserveCents: 200,            // Keep $2 minimum reserve
-  maxX402PaymentCents: 50,             // $0.50 max for x402 payments
+  maxSingleTransferCents: 2000,        // $20 max per transfer
+  maxHourlyTransferCents: 5000,        // $50 max per hour
+  maxDailyTransferCents: 10000,        // $100 max per day
+  minimumReserveCents: 500,            // Keep $5 minimum reserve
+  maxX402PaymentCents: 500,            // $5 max for x402 payments
   x402AllowedDomains: ["x402.org", "localhost"],
   transferCooldownMs: 0,
-  maxTransfersPerTurn: 2,
-  maxInferenceDailyCents: 500,         // $5 max daily inference spend
-  requireConfirmationAboveCents: 100,  // Confirm transfers >$1
+  maxTransfersPerTurn: 5,
+  maxInferenceDailyCents: 2000,        // $20 max daily inference spend
+  requireConfirmationAboveCents: 1000, // Confirm transfers >$10
 };
 
 // ─── Phase 1: Inbox Message Status ──────────────────────────────
@@ -608,13 +608,13 @@ export type InboxMessageStatus = 'received' | 'in_progress' | 'processed' | 'fai
 // ─── Phase 1: Runtime Reliability ────────────────────────────────
 
 export interface HttpClientConfig {
-  baseTimeout: number;               // default: 30_000ms
-  maxRetries: number;                // default: 3
-  retryableStatuses: number[];       // default: [429, 500, 502, 503, 504]
-  backoffBase: number;               // default: 1_000ms
-  backoffMax: number;                // default: 30_000ms
-  circuitBreakerThreshold: number;   // default: 5
-  circuitBreakerResetMs: number;     // default: 60_000ms
+  readonly baseTimeout: number;               // default: 30_000ms
+  readonly maxRetries: number;                // default: 3
+  readonly retryableStatuses: number[];       // default: [429, 500, 502, 503, 504]
+  readonly backoffBase: number;               // default: 1_000ms
+  readonly backoffMax: number;                // default: 30_000ms
+  readonly circuitBreakerThreshold: number;   // default: 5
+  readonly circuitBreakerResetMs: number;     // default: 60_000ms
 }
 
 export const DEFAULT_HTTP_CLIENT_CONFIG: HttpClientConfig = {
@@ -709,12 +709,12 @@ export interface AutomatonDatabase {
 }
 
 export interface InstalledTool {
-  id: string;
-  name: string;
-  type: "builtin" | "mcp" | "custom";
-  config?: Record<string, unknown>;
-  installedAt: string;
-  enabled: boolean;
+  readonly id: string;
+  readonly name: string;
+  readonly type: "builtin" | "mcp" | "custom";
+  readonly config?: Record<string, unknown>;
+  readonly installedAt: string;
+  readonly enabled: boolean;
 }
 
 // ─── Inference Client Interface ──────────────────────────────────
@@ -759,18 +759,18 @@ export interface SkillFrontmatter {
 // ─── Git ────────────────────────────────────────────────────────
 
 export interface GitStatus {
-  branch: string;
-  staged: string[];
-  modified: string[];
-  untracked: string[];
-  clean: boolean;
+  readonly branch: string;
+  readonly staged: string[];
+  readonly modified: string[];
+  readonly untracked: string[];
+  readonly clean: boolean;
 }
 
 export interface GitLogEntry {
-  hash: string;
-  message: string;
-  author: string;
-  date: string;
+  readonly hash: string;
+  readonly message: string;
+  readonly author: string;
+  readonly date: string;
 }
 
 // ─── ERC-8004 Registry ─────────────────────────────────────────
@@ -786,8 +786,8 @@ export interface AgentCard {
 }
 
 export interface AgentService {
-  name: string;
-  endpoint: string;
+  readonly name: string;
+  readonly endpoint: string;
 }
 
 export interface RegistryEntry {
@@ -800,13 +800,13 @@ export interface RegistryEntry {
 }
 
 export interface ReputationEntry {
-  id: string;
-  fromAgent: string;
-  toAgent: string;
-  score: number;
-  comment: string;
-  txHash?: string;
-  timestamp: string;
+  readonly id: string;
+  readonly fromAgent: string;
+  readonly toAgent: string;
+  readonly score: number;
+  readonly comment: string;
+  readonly txHash?: string;
+  readonly timestamp: string;
 }
 
 export interface DiscoveredAgent {
@@ -820,16 +820,16 @@ export interface DiscoveredAgent {
 // ─── Replication ────────────────────────────────────────────────
 
 export interface ChildAutomaton {
-  id: string;
-  name: string;
-  address: Address;
-  sandboxId: string;
-  genesisPrompt: string;
-  creatorMessage?: string;
-  fundedAmountCents: number;
-  status: ChildStatus;
-  createdAt: string;
-  lastChecked?: string;
+  readonly id: string;
+  readonly name: string;
+  readonly address: Address;
+  readonly sandboxId: string;
+  readonly genesisPrompt: string;
+  readonly creatorMessage?: string;
+  readonly fundedAmountCents: number;
+  readonly status: ChildStatus;
+  readonly createdAt: string;
+  readonly lastChecked?: string;
 }
 
 export type ChildStatus =
@@ -852,44 +852,45 @@ export type ChildStatus =
   | "cleaned_up";
 
 export interface GenesisConfig {
-  name: string;
-  genesisPrompt: string;
-  creatorMessage?: string;
-  creatorAddress: Address;
-  parentAddress: Address;
+  readonly name: string;
+  readonly genesisPrompt: string;
+  readonly creatorMessage?: string;
+  readonly creatorAddress: Address;
+  readonly parentAddress: Address;
 }
 
-export const MAX_CHILDREN = 3;
+/** @deprecated Use AutomatonConfig.maxChildren instead (default: 6). */
+export const MAX_CHILDREN = 6;
 
 // ─── Token Budget ───────────────────────────────────────────────
 
 export interface TokenBudget {
-  total: number;                     // default: 6_000
-  systemPrompt: number;              // default: 2_500
-  recentTurns: number;               // default: 2_000
-  toolResults: number;               // default: 1_000
-  memoryRetrieval: number;           // default: 500
+  readonly total: number;
+  readonly systemPrompt: number;
+  readonly recentTurns: number;
+  readonly toolResults: number;
+  readonly memoryRetrieval: number;
 }
 
 export const DEFAULT_TOKEN_BUDGET: TokenBudget = {
-  total: 32_000,          // Claude Haiku/Sonnet with 200K context
-  systemPrompt: 8_000,    // Full system prompt with soul + worklog
-  recentTurns: 16_000,    // Keep several turns of conversation history
-  toolResults: 5_000,     // Detailed tool results
-  memoryRetrieval: 3_000, // Rich memory retrieval
+  total: 60_000,           // Use more of Haiku's 200K context
+  systemPrompt: 12_000,    // Richer system prompt with soul + worklog
+  recentTurns: 30_000,     // More conversation history
+  toolResults: 10_000,     // Bigger tool outputs
+  memoryRetrieval: 8_000,  // More memory context
 };
 
 // ─── Phase 1: Runtime Reliability ───────────────────────────────
 
 export interface TickContext {
-  tickId: string;                    // ULID, unique per tick
-  startedAt: Date;
-  creditBalance: number;             // fetched once per tick (cents)
-  usdcBalance: number;               // fetched once per tick
-  survivalTier: SurvivalTier;
-  lowComputeMultiplier: number;      // from config
-  config: HeartbeatConfig;
-  db: import("better-sqlite3").Database;
+  readonly tickId: string;                    // ULID, unique per tick
+  readonly startedAt: Date;
+  readonly creditBalance: number;             // fetched once per tick (cents)
+  readonly usdcBalance: number;               // fetched once per tick
+  readonly survivalTier: SurvivalTier;
+  readonly lowComputeMultiplier: number;      // from config
+  readonly config: HeartbeatConfig;
+  readonly db: import("better-sqlite3").Database;
 }
 
 export type HeartbeatTaskFn = (
@@ -898,11 +899,11 @@ export type HeartbeatTaskFn = (
 ) => Promise<{ shouldWake: boolean; message?: string }>;
 
 export interface HeartbeatLegacyContext {
-  identity: AutomatonIdentity;
-  config: AutomatonConfig;
-  db: AutomatonDatabase;
-  conway: ConwayClient;
-  social?: SocialClientInterface;
+  readonly identity: AutomatonIdentity;
+  readonly config: AutomatonConfig;
+  readonly db: AutomatonDatabase;
+  readonly conway: ConwayClient;
+  readonly social?: SocialClientInterface;
 }
 
 export interface HeartbeatScheduleRow {
@@ -925,29 +926,29 @@ export interface HeartbeatScheduleRow {
 }
 
 export interface HeartbeatHistoryRow {
-  id: string;                        // ULID
-  taskName: string;
-  startedAt: string;                 // ISO-8601
-  completedAt: string | null;
-  result: 'success' | 'failure' | 'timeout' | 'skipped';
-  durationMs: number | null;
-  error: string | null;
-  idempotencyKey: string | null;
+  readonly id: string;                        // ULID
+  readonly taskName: string;
+  readonly startedAt: string;                 // ISO-8601
+  readonly completedAt: string | null;
+  readonly result: 'success' | 'failure' | 'timeout' | 'skipped';
+  readonly durationMs: number | null;
+  readonly error: string | null;
+  readonly idempotencyKey: string | null;
 }
 
 export interface WakeEventRow {
-  id: number;                        // AUTOINCREMENT
-  source: string;                    // e.g., 'heartbeat', 'inbox', 'manual'
-  reason: string;
-  payload: string;                   // JSON, default '{}'
-  consumedAt: string | null;
-  createdAt: string;
+  readonly id: number;                        // AUTOINCREMENT
+  readonly source: string;                    // e.g., 'heartbeat', 'inbox', 'manual'
+  readonly reason: string;
+  readonly payload: string;                   // JSON, default '{}'
+  readonly consumedAt: string | null;
+  readonly createdAt: string;
 }
 
 export interface HeartbeatDedupRow {
-  dedupKey: string;                  // PK
-  taskName: string;
-  expiresAt: string;                 // ISO-8601
+  readonly dedupKey: string;                  // PK
+  readonly taskName: string;
+  readonly expiresAt: string;                 // ISO-8601
 }
 
 // === Phase 2.1: Soul System Types ===
@@ -981,22 +982,22 @@ export interface SoulModel {
 }
 
 export interface SoulValidationResult {
-  valid: boolean;
-  errors: string[];
-  warnings: string[];
-  sanitized: SoulModel;
+  readonly valid: boolean;
+  readonly errors: string[];
+  readonly warnings: string[];
+  readonly sanitized: SoulModel;
 }
 
 export interface SoulHistoryRow {
-  id: string; // ULID
-  version: number;
-  content: string; // full SOUL.md content
-  contentHash: string; // SHA-256
-  changeSource: "agent" | "human" | "system" | "genesis" | "reflection";
-  changeReason: string | null;
-  previousVersionId: string | null;
-  approvedBy: string | null;
-  createdAt: string;
+  readonly id: string; // ULID
+  readonly version: number;
+  readonly content: string; // full SOUL.md content
+  readonly contentHash: string; // SHA-256
+  readonly changeSource: "agent" | "human" | "system" | "genesis" | "reflection";
+  readonly changeReason: string | null;
+  readonly previousVersionId: string | null;
+  readonly approvedBy: string | null;
+  readonly createdAt: string;
 }
 
 export interface SoulReflection {
@@ -1026,120 +1027,120 @@ export const DEFAULT_SOUL_CONFIG: SoulConfig = {
 export type WorkingMemoryType = "goal" | "observation" | "plan" | "reflection" | "task" | "decision" | "note" | "summary";
 
 export interface WorkingMemoryEntry {
-  id: string; // ULID
-  sessionId: string;
-  content: string;
-  contentType: WorkingMemoryType;
-  priority: number; // 0.0-1.0
-  tokenCount: number;
-  expiresAt: string | null; // ISO 8601 or null
-  sourceTurn: string | null; // turn_id
-  createdAt: string;
+  readonly id: string; // ULID
+  readonly sessionId: string;
+  readonly content: string;
+  readonly contentType: WorkingMemoryType;
+  readonly priority: number; // 0.0-1.0
+  readonly tokenCount: number;
+  readonly expiresAt: string | null; // ISO 8601 or null
+  readonly sourceTurn: string | null; // turn_id
+  readonly createdAt: string;
 }
 
 export type TurnClassification = "strategic" | "productive" | "communication" | "maintenance" | "idle" | "error";
 
 export interface EpisodicMemoryEntry {
-  id: string; // ULID
-  sessionId: string;
-  eventType: string;
-  summary: string;
-  detail: string | null;
-  outcome: "success" | "failure" | "partial" | "neutral" | null;
-  importance: number; // 0.0-1.0
-  embeddingKey: string | null;
-  tokenCount: number;
-  accessedCount: number;
-  lastAccessedAt: string | null;
-  classification: TurnClassification;
-  createdAt: string;
+  readonly id: string; // ULID
+  readonly sessionId: string;
+  readonly eventType: string;
+  readonly summary: string;
+  readonly detail: string | null;
+  readonly outcome: "success" | "failure" | "partial" | "neutral" | null;
+  readonly importance: number; // 0.0-1.0
+  readonly embeddingKey: string | null;
+  readonly tokenCount: number;
+  readonly accessedCount: number;
+  readonly lastAccessedAt: string | null;
+  readonly classification: TurnClassification;
+  readonly createdAt: string;
 }
 
 export type SemanticCategory = "self" | "environment" | "financial" | "agent" | "domain" | "procedural_ref" | "creator";
 
 export interface SemanticMemoryEntry {
-  id: string; // ULID
-  category: SemanticCategory;
-  key: string;
-  value: string;
-  confidence: number; // 0.0-1.0
-  source: string; // session_id or turn_id
-  embeddingKey: string | null;
-  lastVerifiedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+  readonly id: string; // ULID
+  readonly category: SemanticCategory;
+  readonly key: string;
+  readonly value: string;
+  readonly confidence: number; // 0.0-1.0
+  readonly source: string; // session_id or turn_id
+  readonly embeddingKey: string | null;
+  readonly lastVerifiedAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface ProceduralStep {
-  order: number;
-  description: string;
-  tool: string | null;
-  argsTemplate: Record<string, string> | null;
-  expectedOutcome: string | null;
-  onFailure: string | null;
+  readonly order: number;
+  readonly description: string;
+  readonly tool: string | null;
+  readonly argsTemplate: Record<string, string> | null;
+  readonly expectedOutcome: string | null;
+  readonly onFailure: string | null;
 }
 
 export interface ProceduralMemoryEntry {
-  id: string; // ULID
-  name: string; // unique
-  description: string;
-  steps: ProceduralStep[];
-  successCount: number;
-  failureCount: number;
-  lastUsedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+  readonly id: string; // ULID
+  readonly name: string; // unique
+  readonly description: string;
+  readonly steps: ProceduralStep[];
+  readonly successCount: number;
+  readonly failureCount: number;
+  readonly lastUsedAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface RelationshipMemoryEntry {
-  id: string; // ULID
-  entityAddress: string; // unique
-  entityName: string | null;
-  relationshipType: string;
-  trustScore: number; // 0.0-1.0
-  interactionCount: number;
-  lastInteractionAt: string | null;
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
+  readonly id: string; // ULID
+  readonly entityAddress: string; // unique
+  readonly entityName: string | null;
+  readonly relationshipType: string;
+  readonly trustScore: number; // 0.0-1.0
+  readonly interactionCount: number;
+  readonly lastInteractionAt: string | null;
+  readonly notes: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }
 
 export interface SessionSummaryEntry {
-  id: string; // ULID
-  sessionId: string; // unique
-  summary: string;
-  keyDecisions: string[]; // JSON-serialized
-  toolsUsed: string[]; // JSON-serialized
-  outcomes: string[]; // JSON-serialized
-  turnCount: number;
-  totalTokens: number;
-  totalCostCents: number;
-  createdAt: string;
+  readonly id: string; // ULID
+  readonly sessionId: string; // unique
+  readonly summary: string;
+  readonly keyDecisions: string[]; // JSON-serialized
+  readonly toolsUsed: string[]; // JSON-serialized
+  readonly outcomes: string[]; // JSON-serialized
+  readonly turnCount: number;
+  readonly totalTokens: number;
+  readonly totalCostCents: number;
+  readonly createdAt: string;
 }
 
 export interface MemoryRetrievalResult {
-  workingMemory: WorkingMemoryEntry[];
-  episodicMemory: EpisodicMemoryEntry[];
-  semanticMemory: SemanticMemoryEntry[];
-  proceduralMemory: ProceduralMemoryEntry[];
-  relationships: RelationshipMemoryEntry[];
-  totalTokens: number;
+  readonly workingMemory: WorkingMemoryEntry[];
+  readonly episodicMemory: EpisodicMemoryEntry[];
+  readonly semanticMemory: SemanticMemoryEntry[];
+  readonly proceduralMemory: ProceduralMemoryEntry[];
+  readonly relationships: RelationshipMemoryEntry[];
+  readonly totalTokens: number;
 }
 
 export interface MemoryBudget {
-  workingMemoryTokens: number; // default: 1500
-  episodicMemoryTokens: number; // default: 3000
-  semanticMemoryTokens: number; // default: 3000
-  proceduralMemoryTokens: number; // default: 1500
-  relationshipMemoryTokens: number; // default: 1000
+  readonly workingMemoryTokens: number;
+  readonly episodicMemoryTokens: number;
+  readonly semanticMemoryTokens: number;
+  readonly proceduralMemoryTokens: number;
+  readonly relationshipMemoryTokens: number;
 }
 
 export const DEFAULT_MEMORY_BUDGET: MemoryBudget = {
-  workingMemoryTokens: 1_500,
-  episodicMemoryTokens: 3_000,
-  semanticMemoryTokens: 3_000,
-  proceduralMemoryTokens: 1_500,
-  relationshipMemoryTokens: 1_000,
+  workingMemoryTokens: 2_000,
+  episodicMemoryTokens: 4_000,
+  semanticMemoryTokens: 4_000,
+  proceduralMemoryTokens: 2_000,
+  relationshipMemoryTokens: 2_000,
 };
 
 // === Phase 2.3: Inference & Model Strategy Types ===
@@ -1175,49 +1176,49 @@ export interface ModelEntry {
 }
 
 export interface ModelPreference {
-  candidates: string[]; // model IDs in preference order
-  maxTokens: number;
-  ceilingCents: number; // max cost per call (-1 = no limit)
+  readonly candidates: string[]; // model IDs in preference order
+  readonly maxTokens: number;
+  readonly ceilingCents: number; // max cost per call (-1 = no limit)
 }
 
 export type RoutingMatrix = Record<SurvivalTier, Record<InferenceTaskType, ModelPreference>>;
 
 export interface InferenceRequest {
-  messages: ChatMessage[];
-  taskType: InferenceTaskType;
-  tier: SurvivalTier;
-  sessionId: string;
-  turnId?: string;
-  maxTokens?: number; // override
-  tools?: unknown[];
+  readonly messages: ChatMessage[];
+  readonly taskType: InferenceTaskType;
+  readonly tier: SurvivalTier;
+  readonly sessionId: string;
+  readonly turnId?: string;
+  readonly maxTokens?: number; // override
+  readonly tools?: InferenceToolDefinition[];
 }
 
 export interface InferenceResult {
-  content: string;
-  model: string;
-  provider: ModelProvider;
-  inputTokens: number;
-  outputTokens: number;
-  costCents: number;
-  latencyMs: number;
-  toolCalls?: unknown[];
-  finishReason: string;
+  readonly content: string;
+  readonly model: string;
+  readonly provider: ModelProvider;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly costCents: number;
+  readonly latencyMs: number;
+  readonly toolCalls?: InferenceToolCall[];
+  readonly finishReason: string;
 }
 
 export interface InferenceCostRow {
-  id: string; // ULID
-  sessionId: string;
-  turnId: string | null;
-  model: string;
-  provider: string;
-  inputTokens: number;
-  outputTokens: number;
-  costCents: number;
-  latencyMs: number;
-  tier: string;
-  taskType: string;
-  cacheHit: boolean;
-  createdAt: string;
+  readonly id: string; // ULID
+  readonly sessionId: string;
+  readonly turnId: string | null;
+  readonly model: string;
+  readonly provider: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly costCents: number;
+  readonly latencyMs: number;
+  readonly tier: string;
+  readonly taskType: string;
+  readonly cacheHit: boolean;
+  readonly createdAt: string;
 }
 
 export interface ModelRegistryRow {
@@ -1291,29 +1292,29 @@ export const VALID_TRANSITIONS: Record<ChildLifecycleState, ChildLifecycleState[
 };
 
 export interface ChildLifecycleEventRow {
-  id: string; // ULID
-  childId: string;
-  fromState: string;
-  toState: string;
-  reason: string | null;
-  metadata: string; // JSON
-  createdAt: string;
+  readonly id: string; // ULID
+  readonly childId: string;
+  readonly fromState: string;
+  readonly toState: string;
+  readonly reason: string | null;
+  readonly metadata: string; // JSON
+  readonly createdAt: string;
 }
 
 export interface HealthCheckResult {
-  childId: string;
-  healthy: boolean;
-  lastSeen: string | null;
-  uptime: number | null;
-  creditBalance: number | null;
-  issues: string[];
+  readonly childId: string;
+  readonly healthy: boolean;
+  readonly lastSeen: string | null;
+  readonly uptime: number | null;
+  readonly creditBalance: number | null;
+  readonly issues: string[];
 }
 
 export interface ChildHealthConfig {
-  checkIntervalMs: number; // default: 300000 (5 min)
-  unhealthyThresholdMs: number; // default: 900000 (15 min)
-  deadThresholdMs: number; // default: 3600000 (1 hour)
-  maxConcurrentChecks: number; // default: 3
+  readonly checkIntervalMs: number; // default: 300000 (5 min)
+  readonly unhealthyThresholdMs: number; // default: 900000 (15 min)
+  readonly deadThresholdMs: number; // default: 3600000 (1 hour)
+  readonly maxConcurrentChecks: number; // default: 3
 }
 
 export const DEFAULT_CHILD_HEALTH_CONFIG: ChildHealthConfig = {
@@ -1324,11 +1325,11 @@ export const DEFAULT_CHILD_HEALTH_CONFIG: ChildHealthConfig = {
 };
 
 export interface GenesisLimits {
-  maxNameLength: number; // default: 64
-  maxSpecializationLength: number; // default: 2000
-  maxTaskLength: number; // default: 4000
-  maxMessageLength: number; // default: 2000
-  maxGenesisPromptLength: number; // default: 16000
+  readonly maxNameLength: number; // default: 64
+  readonly maxSpecializationLength: number; // default: 2000
+  readonly maxTaskLength: number; // default: 4000
+  readonly maxMessageLength: number; // default: 2000
+  readonly maxGenesisPromptLength: number; // default: 16000
 }
 
 export const DEFAULT_GENESIS_LIMITS: GenesisLimits = {
@@ -1340,12 +1341,12 @@ export const DEFAULT_GENESIS_LIMITS: GenesisLimits = {
 };
 
 export interface ParentChildMessage {
-  id: string;
-  from: string;
-  to: string;
-  content: string;
-  type: string;
-  sentAt: string;
+  readonly id: string;
+  readonly from: string;
+  readonly to: string;
+  readonly content: string;
+  readonly type: string;
+  readonly sentAt: string;
 }
 
 export const MESSAGE_LIMITS = {
@@ -1358,25 +1359,25 @@ export const MESSAGE_LIMITS = {
 // === Phase 3.2: Social & Registry Types ===
 
 export interface SignedMessagePayload {
-  from: string;
-  to: string;
-  content: string;
-  signed_at: string;
-  signature: string;
-  reply_to?: string;
+  readonly from: string;
+  readonly to: string;
+  readonly content: string;
+  readonly signed_at: string;
+  readonly signature: string;
+  readonly reply_to?: string;
 }
 
 export interface MessageValidationResult {
-  valid: boolean;
-  errors: string[];
+  readonly valid: boolean;
+  readonly errors: string[];
 }
 
 export interface DiscoveryConfig {
-  ipfsGateway: string; // default: "https://ipfs.io"
-  maxScanCount: number; // default: 20
-  maxConcurrentFetches: number; // default: 5
-  maxCardSizeBytes: number; // default: 64000
-  fetchTimeoutMs: number; // default: 10000
+  readonly ipfsGateway: string; // default: "https://ipfs.io"
+  readonly maxScanCount: number; // default: 20
+  readonly maxConcurrentFetches: number; // default: 5
+  readonly maxCardSizeBytes: number; // default: 64000
+  readonly fetchTimeoutMs: number; // default: 10000
 }
 
 export const DEFAULT_DISCOVERY_CONFIG: DiscoveryConfig = {
@@ -1388,25 +1389,25 @@ export const DEFAULT_DISCOVERY_CONFIG: DiscoveryConfig = {
 };
 
 export interface OnchainTransactionRow {
-  id: string; // ULID
-  txHash: string;
-  chain: string;
-  operation: string;
-  status: "pending" | "confirmed" | "failed";
-  gasUsed: number | null;
-  metadata: string; // JSON
-  createdAt: string;
+  readonly id: string; // ULID
+  readonly txHash: string;
+  readonly chain: string;
+  readonly operation: string;
+  readonly status: "pending" | "confirmed" | "failed";
+  readonly gasUsed: number | null;
+  readonly metadata: string; // JSON
+  readonly createdAt: string;
 }
 
 export interface DiscoveredAgentCacheRow {
-  agentAddress: string; // PRIMARY KEY
-  agentCard: string; // JSON AgentCard
-  fetchedFrom: string; // URI
-  cardHash: string;
-  validUntil: string | null;
-  fetchCount: number;
-  lastFetchedAt: string;
-  createdAt: string;
+  readonly agentAddress: string; // PRIMARY KEY
+  readonly agentCard: string; // JSON AgentCard
+  readonly fetchedFrom: string; // URI
+  readonly cardHash: string;
+  readonly validUntil: string | null;
+  readonly fetchCount: number;
+  readonly lastFetchedAt: string;
+  readonly createdAt: string;
 }
 
 // === Phase 4.1: Observability Types ===
@@ -1433,41 +1434,41 @@ export interface LogEntry {
 export type MetricType = "counter" | "gauge" | "histogram";
 
 export interface MetricEntry {
-  name: string;
-  value: number;
-  type: MetricType;
-  labels: Record<string, string>;
-  timestamp: string;
+  readonly name: string;
+  readonly value: number;
+  readonly type: MetricType;
+  readonly labels: Record<string, string>;
+  readonly timestamp: string;
 }
 
 export interface MetricSnapshotRow {
-  id: string; // ULID
-  snapshotAt: string;
-  metricsJson: string; // JSON array of MetricEntry
-  alertsJson: string; // JSON array of fired alert names
-  createdAt: string;
+  readonly id: string; // ULID
+  readonly snapshotAt: string;
+  readonly metricsJson: string; // JSON array of MetricEntry
+  readonly alertsJson: string; // JSON array of fired alert names
+  readonly createdAt: string;
 }
 
 export type AlertSeverity = "warning" | "critical";
 
 export interface AlertRule {
-  name: string;
-  severity: AlertSeverity;
-  message: string;
-  cooldownMs: number; // minimum ms between firings
-  condition: (metrics: MetricSnapshot) => boolean;
+  readonly name: string;
+  readonly severity: AlertSeverity;
+  readonly message: string;
+  readonly cooldownMs: number; // minimum ms between firings
+  readonly condition: (metrics: MetricSnapshot) => boolean;
 }
 
 export interface MetricSnapshot {
-  counters: Map<string, number>;
-  gauges: Map<string, number>;
-  histograms: Map<string, number[]>;
+  readonly counters: Map<string, number>;
+  readonly gauges: Map<string, number>;
+  readonly histograms: Map<string, number[]>;
 }
 
 export interface AlertEvent {
-  rule: string;
-  severity: AlertSeverity;
-  message: string;
-  firedAt: string;
-  metricValues: Record<string, number>;
+  readonly rule: string;
+  readonly severity: AlertSeverity;
+  readonly message: string;
+  readonly firedAt: string;
+  readonly metricValues: Record<string, number>;
 }

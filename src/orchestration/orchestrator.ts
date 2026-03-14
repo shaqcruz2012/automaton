@@ -244,7 +244,8 @@ export class Orchestrator {
   }
 
   async fundAgentForTask(addr: string, task: TaskNode): Promise<void> {
-    const estimated = Math.max(0, task.metadata.estimatedCostCents);
+    const rawEstimated = Number(task.metadata.estimatedCostCents);
+    const estimated = Number.isFinite(rawEstimated) ? Math.max(0, rawEstimated) : 0;
     const configuredDefault = Number(this.params.config?.defaultTaskFundingCents ?? DEFAULT_TASK_FUNDING_CENTS);
     const amountCents = Math.max(estimated, Number.isFinite(configuredDefault) ? configuredDefault : 0);
 
@@ -259,7 +260,7 @@ export class Orchestrator {
   }
 
   async collectResults(): Promise<TaskResult[]> {
-    this.pendingTaskResults = [];
+    const collected: TaskResultEnvelope[] = [];
 
     const processed = await this.params.messaging.processInbox();
     for (const entry of processed) {
@@ -272,8 +273,10 @@ export class Orchestrator {
         continue;
       }
 
-      this.pendingTaskResults.push(parsed);
+      collected.push(parsed);
     }
+
+    this.pendingTaskResults = collected;
 
     return this.pendingTaskResults.map((entry) => entry.result);
   }
@@ -581,6 +584,15 @@ export class Orchestrator {
         // be retried on the next tick when an agent becomes available or is spawned.
         if (err.message.startsWith("No available agent")) {
           logger.warn("No agent available for task, will retry next tick", {
+            taskId: task.id,
+            role: task.agentRole,
+          });
+          continue;
+        }
+
+        // Worker pool at capacity — task stays pending for next tick.
+        if (err.message.startsWith("Worker pool at capacity")) {
+          logger.warn("Worker pool at capacity, task deferred to next tick", {
             taskId: task.id,
             role: task.agentRole,
           });

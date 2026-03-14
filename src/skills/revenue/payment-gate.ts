@@ -31,6 +31,19 @@ export function verifyPayment(
   paymentProof: string | undefined,
   tierPriceUsd: number,
 ): { verified: boolean; error?: string } {
+  const verificationEnabled =
+    process.env.PAYMENT_VERIFICATION_ENABLED === "true";
+
+  // When verification is disabled (default), reject ALL payments.
+  // This prevents accidental free LLM calls in dev/test environments.
+  if (!verificationEnabled) {
+    return {
+      verified: false,
+      error:
+        "Payment verification is disabled. Set PAYMENT_VERIFICATION_ENABLED=true and configure x402 verification.",
+    };
+  }
+
   // STUB: Only check that paymentProof is present and non-empty
   if (!paymentProof || paymentProof.trim().length === 0) {
     return {
@@ -40,7 +53,10 @@ export function verifyPayment(
   }
 
   // STUB: In production, verify the payment amount covers the tier price.
-  // For now, any non-empty proof is accepted.
+  // For now, any non-empty proof is accepted when explicitly opted in.
+  console.warn(
+    "STUB: Payment verification is not fully implemented. Accepting non-empty proof as valid.",
+  );
   return { verified: true };
 }
 

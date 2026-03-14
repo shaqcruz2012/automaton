@@ -72,6 +72,7 @@ interface LocalWorkerConfig {
   conway: ConwayClient;
   workerId: string;
   maxTurns?: number;
+  maxWorkers?: number;
 }
 
 interface WorkerToolResult {
@@ -98,6 +99,11 @@ export class LocalWorkerPool {
    * runs in the background and reports results via the task graph.
    */
   spawn(task: TaskNode): { address: string; name: string; sandboxId: string } {
+    const maxWorkers = this.config.maxWorkers ?? 6;
+    if (this.activeWorkers.size >= maxWorkers) {
+      throw new Error(`Worker pool at capacity (${maxWorkers})`);
+    }
+
     const workerId = `local-worker-${ulid()}`;
     const workerName = `worker-${task.agentRole ?? "generalist"}-${workerId.slice(-6)}`;
     const address = `local://${workerId}`;
@@ -174,7 +180,7 @@ export class LocalWorkerPool {
         return;
       }
 
-      const timeoutMs = task.metadata.timeoutMs || DEFAULT_TIMEOUT_MS;
+      const timeoutMs = task.metadata.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       if (Date.now() - startedAt > timeoutMs) {
         logger.warn(`[WORKER ${workerId}] Timed out after ${timeoutMs}ms on turn ${turn}`);
         failTask(this.config.db, task.id, `Worker timed out after ${timeoutMs}ms`, true);
@@ -365,14 +371,20 @@ RULES:
         execute: async (args) => {
           const filePath = args.path as string;
           const content = args.content as string;
+          const normalizedPath = path.resolve(filePath);
+          const basename = path.basename(normalizedPath);
+          const sensitiveFiles = ["wallet.json", ".env", "automaton.json"];
+          if (sensitiveFiles.includes(basename) || basename.endsWith(".key") || basename.endsWith(".pem")) {
+            return "Blocked: Cannot write to sensitive file.";
+          }
 
           try {
-            await this.config.conway.writeFile(filePath, content);
-            return `Wrote ${content.length} bytes to ${filePath}`;
+            await this.config.conway.writeFile(normalizedPath, content);
+            return `Wrote ${content.length} bytes to ${normalizedPath}`;
           } catch {
             try {
-              await localWriteFile(filePath, content);
-              return `Wrote ${content.length} bytes to ${filePath} (local)`;
+              await localWriteFile(normalizedPath, content);
+              return `Wrote ${content.length} bytes to ${normalizedPath} (local)`;
             } catch (error) {
               return `write error: ${error instanceof Error ? error.message : String(error)}`;
             }
@@ -390,12 +402,20 @@ RULES:
           required: ["path"],
         },
         execute: async (args) => {
+          const filePath = args.path as string;
+          const normalizedPath = path.resolve(filePath);
+          const basename = path.basename(normalizedPath);
+          const sensitiveFiles = ["wallet.json", ".env", "automaton.json"];
+          if (sensitiveFiles.includes(basename) || basename.endsWith(".key") || basename.endsWith(".pem")) {
+            return "Blocked: Cannot read sensitive file.";
+          }
+
           try {
-            const content = await this.config.conway.readFile(args.path as string);
+            const content = await this.config.conway.readFile(normalizedPath);
             return content.slice(0, 10_000) || "(empty file)";
           } catch {
             try {
-              const content = await localReadFile(args.path as string);
+              const content = await localReadFile(normalizedPath);
               return content.slice(0, 10_000) || "(empty file)";
             } catch (error) {
               return `read error: ${error instanceof Error ? error.message : String(error)}`;

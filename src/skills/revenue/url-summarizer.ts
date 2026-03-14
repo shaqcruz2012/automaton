@@ -25,6 +25,41 @@ type Database = BetterSqlite3.Database;
 
 const logger = createLogger("skill.url-summarizer");
 
+/** Validate URL to prevent SSRF attacks */
+function validateUrl(raw: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid URL: ${raw.slice(0, 100)}`);
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Blocked URL protocol: ${parsed.protocol}`);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname === "localhost" || hostname === "[::1]") {
+    throw new Error("Blocked URL: localhost is not allowed");
+  }
+
+  // Block private/internal IP ranges
+  const ipMatch = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (ipMatch) {
+    const [, a, b] = ipMatch.map(Number);
+    if (
+      a === 127 ||                           // 127.0.0.0/8
+      a === 10 ||                            // 10.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) ||   // 172.16.0.0/12
+      (a === 192 && b === 168) ||            // 192.168.0.0/16
+      (a === 169 && b === 254) ||            // 169.254.0.0/16
+      a === 0                                // 0.0.0.0
+    ) {
+      throw new Error("Blocked URL: private/internal IP address");
+    }
+  }
+}
+
 /** Port the URL Summarizer microservice runs on */
 const SERVICE_PORT = parseInt(process.env.URL_SUMMARIZER_PORT ?? "9003", 10);
 const SERVICE_BASE = `http://localhost:${SERVICE_PORT}`;
@@ -75,6 +110,9 @@ export async function summarizeUrlForClient(
   const startMs = Date.now();
 
   try {
+    // Validate user-supplied URL to prevent SSRF
+    validateUrl(input.url);
+
     // Check if service is alive first
     const alive = await checkServiceHealth();
     if (!alive) {

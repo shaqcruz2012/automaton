@@ -88,7 +88,7 @@ Environment:
     logger.info("Provisioning API key via SIWE (optional, legacy)...");
     try {
       const result = await provision();
-      logger.info(JSON.stringify(result));
+      logger.info("Provisioned successfully", { walletAddress: result.walletAddress });
     } catch (err: any) {
       logger.error(`Provision failed: ${err.message}`);
       logger.info("This is optional. Set ANTHROPIC_API_KEY or OPENAI_API_KEY for local inference.");

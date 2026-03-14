@@ -31,8 +31,11 @@ function loadWalletAddress(): Address {
   } catch {
     // Fall through to env var or hardcoded
   }
-  return (process.env.GATEWAY_WALLET_ADDRESS ||
-    "0xad045ca2979269Bb7471DC9750BfFeaa24E8A706") as Address;
+  const addr = process.env.GATEWAY_WALLET_ADDRESS;
+  if (!addr) {
+    throw new Error("GATEWAY_WALLET_ADDRESS env var is required");
+  }
+  return addr as Address;
 }
 
 const DEFAULT_TIERS: Record<string, GatewayTier> = {
@@ -81,6 +84,16 @@ const DEFAULT_TIERS: Record<string, GatewayTier> = {
     maxInputTokens: 1000,
     model: "claude-haiku-4-5-20251001",
     description: "Trust and reputation check",
+  },
+  "summarize-url": {
+    route: "/summarize-url",
+    backend: "http://127.0.0.1:9003",
+    backendPath: "/summarize-url",
+    priceUsd: 0.01,
+    priceAtomic: usdToAtomic(0.01),
+    maxInputTokens: 2000,
+    model: "mistral-small-latest",
+    description: "URL content summarization",
   },
 };
 

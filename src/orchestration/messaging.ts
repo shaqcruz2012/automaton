@@ -232,7 +232,7 @@ export class ColonyMessaging {
     const fromAddress = this.db.getIdentity("address") ?? "unknown";
     const createdAt = new Date().toISOString();
 
-    await Promise.all(recipients.map((to) =>
+    const results = await Promise.allSettled(recipients.map((to) =>
       this.send({
         id: ulid(),
         type: "alert",
@@ -247,6 +247,14 @@ export class ColonyMessaging {
         createdAt,
       }),
     ));
+
+    for (const result of results) {
+      if (result.status === "rejected") {
+        logger.warn("Broadcast message failed to send", {
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    }
   }
 
   /** Create a pre-filled message for sending. */

@@ -5,6 +5,7 @@
  * Tools are organized by category and exposed to the inference model.
  */
 
+import path from "path";
 import { ulid } from "ulid";
 import { spawn, execSync, type ChildProcess } from "child_process";
 import type {
@@ -208,7 +209,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
 
         const result = await ctx.conway.exec(
           command,
-          (args.timeout as number) || 30000,
+          (args.timeout as number) ?? 30000,
         );
         return `exit_code: ${result.exitCode}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`;
       },
@@ -257,8 +258,10 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
       },
       execute: async (args, ctx) => {
         const filePath = args.path as string;
+        // Normalize to prevent path traversal bypasses (e.g. ../../.env)
+        const normalizedPath = path.resolve(filePath);
         // Block reads of sensitive files (wallet, env, config secrets)
-        const basename = filePath.split("/").pop() || "";
+        const basename = path.basename(normalizedPath);
         const sensitiveFiles = ["wallet.json", ".env", "automaton.json"];
         const sensitiveExtensions = [".key", ".pem"];
         if (
@@ -269,7 +272,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
           return "Blocked: Cannot read sensitive file. This protects credentials and secrets.";
         }
         try {
-          return await ctx.conway.readFile(filePath);
+          return await ctx.conway.readFile(normalizedPath);
         } catch {
           // files/read API may be broken — fall back to exec
           const catCmd = process.platform === "win32"

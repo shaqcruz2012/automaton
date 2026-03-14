@@ -124,7 +124,7 @@ export async function provision(
 
   if (!keyResp.ok) {
     throw new Error(
-      `Failed to create API key: ${keyResp.status} ${await keyResp.text()}`,
+      `Failed to create API key: HTTP ${keyResp.status}`,
     );
   }
 
