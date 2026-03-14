@@ -49,8 +49,18 @@ function isCascadable400(errMsg: string): boolean {
 /** Cache P&L for 5 minutes to avoid constant DB queries */
 const PNL_CACHE_TTL_MS = 5 * 60 * 1000;
 
-/** Timeout for direct provider calls */
+/** Default timeout for direct provider calls (used as fallback) */
 const PROVIDER_TIMEOUT_MS = 60_000;
+
+/**
+ * Compute a dynamic timeout that scales with request size.
+ * - 15s minimum (small safety checks ~512 tokens)
+ * - 2ms per requested token
+ * - 120s maximum (large reasoning tasks ~8K tokens)
+ */
+function computeTimeoutMs(maxTokens: number | undefined): number {
+  return Math.min(120_000, Math.max(15_000, 15_000 + (maxTokens || 4096) * 2));
+}
 
 /** Circuit breaker: disable provider after this many consecutive failures */
 const CB_FAILURE_THRESHOLD = 3;
@@ -171,7 +181,7 @@ async function callProviderDirect(
       ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
+    signal: AbortSignal.timeout(computeTimeoutMs(maxTokens)),
   });
 
   if (!response.ok) {
@@ -193,13 +203,11 @@ async function callProviderDirect(
       ? rawContent.map((p: any) => p.text ?? p.content ?? "").join("")
       : String(rawContent ?? "");
   const toolCalls = choice?.message?.tool_calls?.map((tc: any) => {
-    // Ollama may return undefined/null tool call IDs for some models.
-    // Generate a random ID as fallback so downstream code always has one.
-    const id = tc.id
-      ? (typeof tc.id === "string" && tc.id.length < 9
-        ? tc.id.replace(/[^a-zA-Z0-9]/g, "").padEnd(9, "0")
-        : tc.id)
-      : "call_" + Math.random().toString(36).slice(2, 11);
+    // Ollama may return undefined/null/short/invalid tool call IDs.
+    // Normalize to a 9-char alphanumeric ID so downstream code always has a valid one.
+    const generateId = () => "call_" + Math.random().toString(36).slice(2, 11);
+    const normalized = (tc.id || "").toString().replace(/[^a-zA-Z0-9]/g, "").slice(0, 9).padEnd(9, "0");
+    const id = normalized && normalized !== "000000000" ? normalized : generateId();
 
     // Ollama may return function.arguments as an object instead of a string.
     const rawArgs = tc.function?.arguments;

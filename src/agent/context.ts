@@ -37,7 +37,7 @@ function sanitizeToolCallId(id: string | undefined): string {
   return clean.padEnd(9, "0");
 }
 
-let tokenCounter: ReturnType<typeof createTokenCounter> | null = null;
+const tokenCounter = createTokenCounter();
 
 /** Maximum size for individual tool results in characters */
 export const MAX_TOOL_RESULT_SIZE = 8_000;
@@ -57,9 +57,6 @@ export function estimateTokens(text: string): number {
   const content = text ?? "";
   const legacyEstimate = Math.ceil(content.length / 4);
   try {
-    if (!tokenCounter) {
-      tokenCounter = createTokenCounter();
-    }
     const tokens = tokenCounter.countTokens(content);
     if (Number.isFinite(tokens) && tokens > 0) {
       // Keep a conservative floor to avoid under-budgeting context.

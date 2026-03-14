@@ -112,8 +112,12 @@ export class PolicyEngine {
 
     try {
       insertPolicyDecision(this.db, row);
-    } catch {
-      // Don't let logging failures block tool execution
+    } catch (err) {
+      console.error("Failed to log policy decision", {
+        error: (err as Error).message,
+        toolName: decision.toolName,
+        decision: decision.action,
+      });
     }
   }
 

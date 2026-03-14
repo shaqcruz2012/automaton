@@ -105,12 +105,16 @@ export function sanitizeToolResult(
 
 // ─── Skill Instruction Sanitization ─────────────────────────────
 
+const SKILL_TOOL_CALL_PATTERN = /\{"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:/g;
+const SKILL_TOOL_REF_PATTERN = /\btool_call\b/gi;
+const SKILL_FUNC_REF_PATTERN = /\bfunction_call\b/gi;
+
 function sanitizeSkillInstruction(raw: string): SanitizedInput {
   // Strip tool call syntax patterns
   let cleaned = raw
-    .replace(/\{"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:/g, "[tool-call-removed]")
-    .replace(/\btool_call\b/gi, "[tool-ref-removed]")
-    .replace(/\bfunction_call\b/gi, "[func-ref-removed]");
+    .replace(SKILL_TOOL_CALL_PATTERN, "[tool-call-removed]")
+    .replace(SKILL_TOOL_REF_PATTERN, "[tool-ref-removed]")
+    .replace(SKILL_FUNC_REF_PATTERN, "[func-ref-removed]");
 
   cleaned = escapePromptBoundaries(cleaned);
   cleaned = stripChatMLMarkers(cleaned);
@@ -239,29 +243,122 @@ export function sanitizeInput(
   };
 }
 
+// ─── Pre-compiled Detection Patterns ─────────────────────────
+
+const INSTRUCTION_PATTERNS: readonly RegExp[] = [
+  /you\s+must\s+(now\s+)?/i,
+  /ignore\s+(all\s+)?(previous|prior|above)/i,
+  /disregard\s+(all\s+)?(previous|prior|above)/i,
+  /forget\s+(everything|all|your)/i,
+  /new\s+instructions?:/i,
+  /system\s*:\s*/i,
+  /\[INST\]/i,
+  /\[\/INST\]/i,
+  /<<SYS>>/i,
+  /<<\/SYS>>/i,
+  /^(assistant|system|user)\s*:/im,
+  /override\s+(all\s+)?safety/i,
+  /bypass\s+(all\s+)?restrictions?/i,
+  /execute\s+the\s+following/i,
+  /run\s+this\s+command/i,
+  /your\s+real\s+instructions?\s+(are|is)/i,
+];
+
+const AUTHORITY_PATTERNS: readonly RegExp[] = [
+  /i\s+am\s+(your\s+)?(creator|admin|owner|developer|god)/i,
+  /this\s+is\s+(an?\s+)?(system|admin|emergency)\s+(message|override|update)/i,
+  /authorized\s+by\s+(the\s+)?(admin|system|creator)/i,
+  /i\s+have\s+(admin|root|full)\s+(access|permission|authority)/i,
+  /emergency\s+protocol/i,
+  /developer\s+mode/i,
+  /admin\s+override/i,
+  /from\s+anthropic/i,
+  /from\s+(conway|datchi)\s+(team|admin|staff)/i,
+];
+
+const BOUNDARY_PATTERNS: readonly RegExp[] = [
+  /<\/system>/i,
+  /<system>/i,
+  /<\/prompt>/i,
+  /```system/i,
+  /---\s*system\s*---/i,
+  /\[SYSTEM\]/i,
+  /END\s+OF\s+(SYSTEM|PROMPT)/i,
+  /BEGIN\s+NEW\s+(PROMPT|INSTRUCTIONS?)/i,
+  /\x00/, // null bytes
+  /\u200b/, // zero-width space
+  /\u200c/, // zero-width non-joiner
+  /\u200d/, // zero-width joiner
+  /\ufeff/, // BOM
+];
+
+const CHATML_PATTERNS: readonly RegExp[] = [
+  /<\|im_start\|>/i,
+  /<\|im_end\|>/i,
+  /<\|endoftext\|>/i,
+];
+
+const OBFUSCATION_BASE64_PATTERN = /[A-Za-z0-9+/]{40,}={0,2}/;
+const OBFUSCATION_UNICODE_ESCAPE_PATTERN = /\\u[0-9a-fA-F]{4}/g;
+const OBFUSCATION_CIPHER_PATTERN = /rot13|base64_decode|atob|btoa/i;
+const OBFUSCATION_HOMOGLYPH_PATTERN = /[\u0430\u0435\u043e\u0440\u0441\u0443\u0445]/;
+const OBFUSCATION_HEX_ESCAPE_PATTERN = /\\x[0-9a-fA-F]{2}/g;
+
+const MULTI_LANGUAGE_PATTERNS: readonly RegExp[] = [
+  // Chinese injection patterns
+  /\u5ffd\u7565[\u4e00-\u9fff]*(\u6307\u4ee4|\u8bf4\u660e|\u63d0\u793a)/,   // ignore ... instructions/instructions/prompt
+  /\u65b0\u7684?\u6307\u4ee4/,                                               // new instructions
+  /\u7cfb\u7edf\u63d0\u793a/,                                                 // system prompt
+  // Russian injection patterns
+  /\u0438\u0433\u043d\u043e\u0440\u0438\u0440\u0443\u0439/i,                 // ignore
+  /\u043d\u043e\u0432\u044b\u0435\s+\u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446\u0438\u0438/i, // new instructions
+  /\u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u0435\s+\u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435/i, // system message
+  // Spanish injection patterns
+  /ignora\s+(todas?\s+)?(las?\s+)?(instrucciones?\s+)?anteriores?/i,
+  /nuevas?\s+instrucciones?/i,
+  /mensaje\s+del?\s+sistema/i,
+  // Arabic injection patterns
+  /\u062a\u062c\u0627\u0647\u0644/,                                           // ignore
+  /\u062a\u0639\u0644\u064a\u0645\u0627\u062a\s+\u062c\u062f\u064a\u062f\u0629/, // new instructions
+  // German injection patterns
+  /ignoriere\s+(alle\s+)?(vorherigen?\s+)?anweisungen/i,
+  /neue\s+anweisungen/i,
+  // French injection patterns
+  /ignore[rz]?\s+(toutes?\s+)?(les?\s+)?instructions?\s+(pr[eé]c[eé]dentes?|ant[eé]rieures?)/i,
+  /nouvelles?\s+instructions?/i,
+  // Japanese injection patterns
+  /\u6307\u793a\u3092\u7121\u8996/,                                           // ignore instructions
+  /\u65b0\u3057\u3044\u6307\u793a/,                                           // new instructions
+];
+
+const FINANCIAL_PATTERNS: readonly RegExp[] = [
+  /send\s+(all\s+)?(your\s+)?(usdc|funds?|money|credits?|balance)/i,
+  /transfer\s+(all\s+)?(your\s+)?(usdc|funds?|money|credits?)/i,
+  /withdraw\s+(all\s+)?(your\s+)?(usdc|funds?|money|credits?)/i,
+  /pay\s+me/i,
+  /send\s+to\s+0x[0-9a-fA-F]{40}/i,
+  /empty\s+(your\s+)?wallet/i,
+  /drain\s+(your\s+)?(wallet|funds?|account)/i,
+];
+
+const SELF_HARM_PATTERNS: readonly RegExp[] = [
+  /delete\s+(your\s+)?(database|db|state|memory|logs?)/i,
+  /destroy\s+(your)?self/i,
+  /kill\s+(your)?self/i,
+  /shut\s*(down|off)\s*(your)?self/i,
+  /rm\s+-rf/i,
+  /drop\s+table/i,
+  /format\s+(the\s+)?disk/i,
+  /delete\s+all\s+(your\s+)?files?/i,
+  /stop\s+(your\s+)?process/i,
+  /disable\s+(your\s+)?(heartbeat|service|daemon)/i,
+  /remove\s+(your\s+)?(wallet|key|identity)/i,
+];
+
 // ─── Detection Functions ──────────────────────────────────────
 
 function detectInstructionPatterns(text: string): InjectionCheck {
-  const patterns = [
-    /you\s+must\s+(now\s+)?/i,
-    /ignore\s+(all\s+)?(previous|prior|above)/i,
-    /disregard\s+(all\s+)?(previous|prior|above)/i,
-    /forget\s+(everything|all|your)/i,
-    /new\s+instructions?:/i,
-    /system\s*:\s*/i,
-    /\[INST\]/i,
-    /\[\/INST\]/i,
-    /<<SYS>>/i,
-    /<<\/SYS>>/i,
-    /^(assistant|system|user)\s*:/im,
-    /override\s+(all\s+)?safety/i,
-    /bypass\s+(all\s+)?restrictions?/i,
-    /execute\s+the\s+following/i,
-    /run\s+this\s+command/i,
-    /your\s+real\s+instructions?\s+(are|is)/i,
-  ];
-
-  const detected = patterns.some((p) => p.test(text));
+  const detected = INSTRUCTION_PATTERNS.some((p) => p.test(text));
   return {
     name: "instruction_patterns",
     detected,
@@ -272,19 +369,7 @@ function detectInstructionPatterns(text: string): InjectionCheck {
 }
 
 function detectAuthorityClaims(text: string): InjectionCheck {
-  const patterns = [
-    /i\s+am\s+(your\s+)?(creator|admin|owner|developer|god)/i,
-    /this\s+is\s+(an?\s+)?(system|admin|emergency)\s+(message|override|update)/i,
-    /authorized\s+by\s+(the\s+)?(admin|system|creator)/i,
-    /i\s+have\s+(admin|root|full)\s+(access|permission|authority)/i,
-    /emergency\s+protocol/i,
-    /developer\s+mode/i,
-    /admin\s+override/i,
-    /from\s+anthropic/i,
-    /from\s+(conway|datchi)\s+(team|admin|staff)/i,
-  ];
-
-  const detected = patterns.some((p) => p.test(text));
+  const detected = AUTHORITY_PATTERNS.some((p) => p.test(text));
   return {
     name: "authority_claims",
     detected,
@@ -295,23 +380,7 @@ function detectAuthorityClaims(text: string): InjectionCheck {
 }
 
 function detectBoundaryManipulation(text: string): InjectionCheck {
-  const patterns = [
-    /<\/system>/i,
-    /<system>/i,
-    /<\/prompt>/i,
-    /```system/i,
-    /---\s*system\s*---/i,
-    /\[SYSTEM\]/i,
-    /END\s+OF\s+(SYSTEM|PROMPT)/i,
-    /BEGIN\s+NEW\s+(PROMPT|INSTRUCTIONS?)/i,
-    /\x00/, // null bytes
-    /\u200b/, // zero-width space
-    /\u200c/, // zero-width non-joiner
-    /\u200d/, // zero-width joiner
-    /\ufeff/, // BOM
-  ];
-
-  const detected = patterns.some((p) => p.test(text));
+  const detected = BOUNDARY_PATTERNS.some((p) => p.test(text));
   return {
     name: "boundary_manipulation",
     detected,
@@ -322,13 +391,7 @@ function detectBoundaryManipulation(text: string): InjectionCheck {
 }
 
 function detectChatMLMarkers(text: string): InjectionCheck {
-  const patterns = [
-    /<\|im_start\|>/i,
-    /<\|im_end\|>/i,
-    /<\|endoftext\|>/i,
-  ];
-
-  const detected = patterns.some((p) => p.test(text));
+  const detected = CHATML_PATTERNS.some((p) => p.test(text));
   return {
     name: "chatml_markers",
     detected,
@@ -340,24 +403,20 @@ function detectChatMLMarkers(text: string): InjectionCheck {
 
 function detectObfuscation(text: string): InjectionCheck {
   // Check for base64-encoded instructions
-  const base64Pattern = /[A-Za-z0-9+/]{40,}={0,2}/;
-  const hasLongBase64 = base64Pattern.test(text);
+  const hasLongBase64 = OBFUSCATION_BASE64_PATTERN.test(text);
 
   // Check for excessive Unicode escapes
-  const unicodeEscapes = (text.match(/\\u[0-9a-fA-F]{4}/g) || []).length;
+  const unicodeEscapes = (text.match(OBFUSCATION_UNICODE_ESCAPE_PATTERN) || []).length;
   const hasExcessiveUnicode = unicodeEscapes > 5;
 
   // Check for ROT13 or simple cipher patterns
-  const rotPattern = /rot13|base64_decode|atob|btoa/i;
-  const hasCipherRef = rotPattern.test(text);
+  const hasCipherRef = OBFUSCATION_CIPHER_PATTERN.test(text);
 
   // Check for homoglyph attacks (Cyrillic letters that look like Latin)
-  const homoglyphPattern = /[\u0430\u0435\u043e\u0440\u0441\u0443\u0445]/;
-  const hasHomoglyphs = homoglyphPattern.test(text);
+  const hasHomoglyphs = OBFUSCATION_HOMOGLYPH_PATTERN.test(text);
 
   // Check for unicode escape sequences in the raw text
-  const rawUnicodeEscape = /\\x[0-9a-fA-F]{2}/g;
-  const hasHexEscapes = (text.match(rawUnicodeEscape) || []).length > 3;
+  const hasHexEscapes = (text.match(OBFUSCATION_HEX_ESCAPE_PATTERN) || []).length > 3;
 
   const detected =
     hasLongBase64 ||
@@ -375,34 +434,7 @@ function detectObfuscation(text: string): InjectionCheck {
 }
 
 function detectMultiLanguageInjection(text: string): InjectionCheck {
-  const patterns = [
-    // Chinese injection patterns
-    /\u5ffd\u7565[\u4e00-\u9fff]*(\u6307\u4ee4|\u8bf4\u660e|\u63d0\u793a)/,   // ignore ... instructions/instructions/prompt
-    /\u65b0\u7684?\u6307\u4ee4/,                                               // new instructions
-    /\u7cfb\u7edf\u63d0\u793a/,                                                 // system prompt
-    // Russian injection patterns
-    /\u0438\u0433\u043d\u043e\u0440\u0438\u0440\u0443\u0439/i,                 // ignore
-    /\u043d\u043e\u0432\u044b\u0435\s+\u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446\u0438\u0438/i, // new instructions
-    /\u0441\u0438\u0441\u0442\u0435\u043c\u043d\u043e\u0435\s+\u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435/i, // system message
-    // Spanish injection patterns
-    /ignora\s+(todas?\s+)?(las?\s+)?(instrucciones?\s+)?anteriores?/i,
-    /nuevas?\s+instrucciones?/i,
-    /mensaje\s+del?\s+sistema/i,
-    // Arabic injection patterns
-    /\u062a\u062c\u0627\u0647\u0644/,                                           // ignore
-    /\u062a\u0639\u0644\u064a\u0645\u0627\u062a\s+\u062c\u062f\u064a\u062f\u0629/, // new instructions
-    // German injection patterns
-    /ignoriere\s+(alle\s+)?(vorherigen?\s+)?anweisungen/i,
-    /neue\s+anweisungen/i,
-    // French injection patterns
-    /ignore[rz]?\s+(toutes?\s+)?(les?\s+)?instructions?\s+(pr[eé]c[eé]dentes?|ant[eé]rieures?)/i,
-    /nouvelles?\s+instructions?/i,
-    // Japanese injection patterns
-    /\u6307\u793a\u3092\u7121\u8996/,                                           // ignore instructions
-    /\u65b0\u3057\u3044\u6307\u793a/,                                           // new instructions
-  ];
-
-  const detected = patterns.some((p) => p.test(text));
+  const detected = MULTI_LANGUAGE_PATTERNS.some((p) => p.test(text));
   return {
     name: "multi_language_injection",
     detected,
@@ -413,17 +445,7 @@ function detectMultiLanguageInjection(text: string): InjectionCheck {
 }
 
 function detectFinancialManipulation(text: string): InjectionCheck {
-  const patterns = [
-    /send\s+(all\s+)?(your\s+)?(usdc|funds?|money|credits?|balance)/i,
-    /transfer\s+(all\s+)?(your\s+)?(usdc|funds?|money|credits?)/i,
-    /withdraw\s+(all\s+)?(your\s+)?(usdc|funds?|money|credits?)/i,
-    /pay\s+me/i,
-    /send\s+to\s+0x[0-9a-fA-F]{40}/i,
-    /empty\s+(your\s+)?wallet/i,
-    /drain\s+(your\s+)?(wallet|funds?|account)/i,
-  ];
-
-  const detected = patterns.some((p) => p.test(text));
+  const detected = FINANCIAL_PATTERNS.some((p) => p.test(text));
   return {
     name: "financial_manipulation",
     detected,
@@ -434,21 +456,7 @@ function detectFinancialManipulation(text: string): InjectionCheck {
 }
 
 function detectSelfHarmInstructions(text: string): InjectionCheck {
-  const patterns = [
-    /delete\s+(your\s+)?(database|db|state|memory|logs?)/i,
-    /destroy\s+(your)?self/i,
-    /kill\s+(your)?self/i,
-    /shut\s*(down|off)\s*(your)?self/i,
-    /rm\s+-rf/i,
-    /drop\s+table/i,
-    /format\s+(the\s+)?disk/i,
-    /delete\s+all\s+(your\s+)?files?/i,
-    /stop\s+(your\s+)?process/i,
-    /disable\s+(your\s+)?(heartbeat|service|daemon)/i,
-    /remove\s+(your\s+)?(wallet|key|identity)/i,
-  ];
-
-  const detected = patterns.some((p) => p.test(text));
+  const detected = SELF_HARM_PATTERNS.some((p) => p.test(text));
   return {
     name: "self_harm_instructions",
     detected,

@@ -554,7 +554,7 @@ export class CompressionEngine {
 
     this.totalEmergencyTruncations += 1;
     this.eventStream.append({
-      type: "compression_warning" as unknown as EventType,
+      type: "compression_warning",
       agentAddress: this.pickAgentAddress(allEvents),
       goalId: null,
       taskId: null,

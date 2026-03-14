@@ -30,7 +30,8 @@ export type EventType =
   | "market_signal"
   | "revenue"
   | "error"
-  | "reflection";
+  | "reflection"
+  | "compression_warning";
 
 export interface StreamEvent {
   id: string;
@@ -82,6 +83,41 @@ export class EventStream {
     return id;
   }
 
+  appendBatch(events: ReadonlyArray<Omit<StreamEvent, "id" | "createdAt">>): string[] {
+    const stmt = this.db.prepare(
+      `INSERT INTO event_stream (id, type, agent_address, goal_id, task_id, content, token_count, compacted_to, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+
+    const ids: string[] = [];
+    const createdAt = new Date().toISOString();
+
+    const runBatch = this.db.transaction(() => {
+      for (const event of events) {
+        const id = ulid();
+        const tokenCount = event.tokenCount === 0
+          ? estimateTokens(event.content)
+          : event.tokenCount;
+
+        stmt.run(
+          id,
+          event.type,
+          event.agentAddress,
+          event.goalId,
+          event.taskId,
+          event.content,
+          tokenCount,
+          event.compactedTo,
+          createdAt,
+        );
+        ids.push(id);
+      }
+    });
+    runBatch();
+
+    return ids;
+  }
+
   getRecent(agentAddress: string, limit: number = 50): StreamEvent[] {
     return getRecentEvents(this.db, agentAddress, limit).map(toStreamEvent);
   }
@@ -126,17 +162,20 @@ export class EventStream {
     let compactedCount = 0;
     let tokensSaved = 0;
 
-    for (const row of rows) {
-      const compactedTo = strategy === "reference"
-        ? buildReference(row)
-        : buildSummary(row);
-      updateStatement.run(compactedTo, row.id);
-      compactedCount += 1;
-      tokensSaved += Math.max(
-        0,
-        row.tokenCount - estimateTokens(compactedTo),
-      );
-    }
+    const runCompaction = this.db.transaction(() => {
+      for (const row of rows) {
+        const compactedTo = strategy === "reference"
+          ? buildReference(row)
+          : buildSummary(row);
+        updateStatement.run(compactedTo, row.id);
+        compactedCount += 1;
+        tokensSaved += Math.max(
+          0,
+          row.tokenCount - estimateTokens(compactedTo),
+        );
+      }
+    });
+    runCompaction();
 
     return {
       compactedCount,

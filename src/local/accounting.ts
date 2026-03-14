@@ -102,6 +102,7 @@ export interface RevenueEvent {
 }
 
 export function logRevenue(db: Database, event: RevenueEvent): string {
+  if (event.amountCents <= 0) throw new Error("Amount must be positive");
   const id = event.id || ulid();
   db.prepare(
     `INSERT INTO revenue_events (id, source, amount_cents, description, metadata, niche_id, experiment_id)
@@ -135,6 +136,7 @@ export interface ExpenseEvent {
 }
 
 export function logExpense(db: Database, event: ExpenseEvent): string {
+  if (event.amountCents <= 0) throw new Error("Amount must be positive");
   const id = event.id || ulid();
   db.prepare(
     `INSERT INTO expense_events (id, category, amount_cents, description, metadata, niche_id, experiment_id)
@@ -208,7 +210,12 @@ export interface PnlReport {
  * Compute P&L for a given period.
  * @param period - "day", "week", "month", or "all"
  */
+const VALID_PNL_PERIODS = ["day", "week", "month", "all"] as const;
+
 export function computePnl(db: Database, period: string = "all"): PnlReport {
+  if (!VALID_PNL_PERIODS.includes(period as (typeof VALID_PNL_PERIODS)[number])) {
+    throw new Error(`Invalid period "${period}". Must be one of: ${VALID_PNL_PERIODS.join(", ")}`);
+  }
   const now = new Date();
   let periodStart: string;
 

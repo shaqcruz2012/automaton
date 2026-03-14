@@ -796,8 +796,8 @@ export async function runAgentLoop(
                 },
               });
             }
-          } catch {
-            // Not valid JSON, skip
+          } catch (parseErr) {
+            log(config, `[TOOL-RECOVERY] Failed to parse JSON block: ${(parseErr as Error).message}`);
           }
         }
         if (parsedCalls.length > 0) {

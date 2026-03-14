@@ -299,6 +299,9 @@ export class ProviderRegistry {
   private readonly tierDefaults: Record<ModelTier, TierDefault>;
   private readonly disablements = new Map<string, ProviderDisablement>();
   private readonly emergencyStopCredits: number;
+  private providerByIdMap: Map<string, ProviderConfig> | undefined;
+  /** Cache of OpenAI-compatible SDK clients keyed by "providerId|baseUrl|apiKey" */
+  private readonly clientCache = new Map<string, OpenAI>();
 
   constructor(
     providers: ProviderConfig[] = DEFAULT_PROVIDERS,
@@ -314,6 +317,14 @@ export class ProviderRegistry {
       cheap: normalizeTierDefault(tierDefaults.cheap, DEFAULT_TIER_DEFAULTS.cheap),
     };
     this.emergencyStopCredits = emergencyStopCredits;
+  }
+
+  getProviderById(id: string): ProviderConfig | undefined {
+    if (!this.providerByIdMap) {
+      this.providerByIdMap = new Map(this.providers.map((p) => [p.id, p]));
+    }
+    const provider = this.providerByIdMap.get(id);
+    return provider ? deepCloneProvider(provider) : undefined;
   }
 
   overrideBaseUrl(providerId: string, baseUrl: string): void {
@@ -489,12 +500,17 @@ export class ProviderRegistry {
     // Anthropic uses a native API format, not OpenAI-compatible.
     // Do not create an OpenAI client for Anthropic — the inference client
     // handles Anthropic calls directly via fetch.
-    const client = provider.id === "anthropic"
-      ? undefined
-      : new OpenAI({
-          apiKey,
-          baseURL: provider.baseUrl,
-        });
+    let client: OpenAI | undefined;
+    if (provider.id !== "anthropic") {
+      const cacheKey = `${provider.id}|${provider.baseUrl}|${apiKey}`;
+      const cached = this.clientCache.get(cacheKey);
+      if (cached) {
+        client = cached;
+      } else {
+        client = new OpenAI({ apiKey, baseURL: provider.baseUrl });
+        this.clientCache.set(cacheKey, client);
+      }
+    }
 
     return {
       provider: deepCloneProvider(provider),

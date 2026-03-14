@@ -5,6 +5,7 @@
  * Tools are organized by category and exposed to the inference model.
  */
 
+import path from "path";
 import { ulid } from "ulid";
 import { spawn, execSync, type ChildProcess } from "child_process";
 import type {
@@ -208,7 +209,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
 
         const result = await ctx.conway.exec(
           command,
-          (args.timeout as number) || 30000,
+          (args.timeout as number) ?? 30000,
         );
         return `exit_code: ${result.exitCode}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`;
       },
@@ -257,8 +258,10 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
       },
       execute: async (args, ctx) => {
         const filePath = args.path as string;
+        // Normalize to prevent path traversal bypasses (e.g. ../../.env)
+        const normalizedPath = path.resolve(filePath);
         // Block reads of sensitive files (wallet, env, config secrets)
-        const basename = filePath.split("/").pop() || "";
+        const basename = normalizedPath.split("/").pop() || "";
         const sensitiveFiles = ["wallet.json", ".env", "automaton.json"];
         const sensitiveExtensions = [".key", ".pem"];
         if (
@@ -3237,8 +3240,18 @@ Model: ${ctx.inference.getDefaultModel()}
 }
 
 /**
+ * TTL cache for loadInstalledTools to avoid repeated DB/disk reads within the
+ * same turn.  Cache is invalidated after {@link INSTALLED_TOOLS_TTL_MS} ms.
+ */
+const INSTALLED_TOOLS_TTL_MS = 30_000;
+let _installedToolsCache: { tools: AutomatonTool[]; expiry: number } | null = null;
+
+/**
  * Load installed tools from the database and return as AutomatonTool[].
  * Installed tools are dynamically added from the installed_tools table.
+ *
+ * Results are cached for 30 seconds so repeated calls within the same turn
+ * skip the database query.
  */
 export function loadInstalledTools(db: {
   getInstalledTools: () => {
@@ -3250,9 +3263,14 @@ export function loadInstalledTools(db: {
     enabled: boolean;
   }[];
 }): AutomatonTool[] {
+  const now = Date.now();
+  if (_installedToolsCache && now < _installedToolsCache.expiry) {
+    return _installedToolsCache.tools;
+  }
+
   try {
     const installed = db.getInstalledTools();
-    return installed.map((tool) => ({
+    const tools = installed.map((tool) => ({
       name: tool.name,
       description: `Installed tool: ${tool.name}`,
       category: (tool.type === "mcp" ? "conway" : "vm") as ToolCategory,
@@ -3263,6 +3281,8 @@ export function loadInstalledTools(db: {
       },
       execute: createInstalledToolExecutor(tool),
     }));
+    _installedToolsCache = { tools, expiry: now + INSTALLED_TOOLS_TTL_MS };
+    return tools;
   } catch (error) {
     logger.error(
       "Failed to load installed tools",

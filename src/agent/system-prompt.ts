@@ -12,6 +12,26 @@ import type Database from "better-sqlite3";
 import { createLogger } from "../observability/logger.js";
 
 const logger = createLogger("prompt");
+
+/**
+ * Module-level file cache: only re-reads a file when its mtime changes.
+ */
+const fileCache = new Map<string, { mtimeMs: number; content: string }>();
+
+function cachedFileRead(filePath: string): string | null {
+  try {
+    const stat = fs.statSync(filePath);
+    const cached = fileCache.get(filePath);
+    if (cached && cached.mtimeMs === stat.mtimeMs) {
+      return cached.content;
+    }
+    const content = fs.readFileSync(filePath, "utf-8");
+    fileCache.set(filePath, { mtimeMs: stat.mtimeMs, content });
+    return content;
+  } catch {
+    return null;
+  }
+}
 import type {
   AutomatonConfig,
   AutomatonIdentity,
@@ -70,11 +90,10 @@ function loadConstitution(): string {
     path.join(process.cwd(), "constitution.md"),
   ];
   for (const loc of locations) {
-    try {
-      if (fs.existsSync(loc)) {
-        return fs.readFileSync(loc, "utf-8");
-      }
-    } catch {}
+    const content = cachedFileRead(loc);
+    if (content !== null) {
+      return content;
+    }
   }
   return CONSTITUTION_FALLBACK;
 }
@@ -448,16 +467,9 @@ ${orchestratorStatus}
  * Load SOUL.md from the automaton's state directory.
  */
 function loadSoulMd(): string | null {
-  try {
-    const home = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\Users\\default" : "/root");
-    const soulPath = path.join(home, ".automaton", "SOUL.md");
-    if (fs.existsSync(soulPath)) {
-      return fs.readFileSync(soulPath, "utf-8");
-    }
-  } catch {
-    // Ignore errors
-  }
-  return null;
+  const home = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\Users\\default" : "/root");
+  const soulPath = path.join(home, ".automaton", "SOUL.md");
+  return cachedFileRead(soulPath);
 }
 
 /**
@@ -465,21 +477,16 @@ function loadSoulMd(): string | null {
  * Truncates to last 4000 characters if content exceeds that length.
  */
 function loadWorklog(): string | null {
-  try {
-    const home = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\Users\\default" : "/root");
-    const worklogPath = path.join(home, ".automaton", "WORKLOG.md");
-    if (fs.existsSync(worklogPath)) {
-      let content = fs.readFileSync(worklogPath, "utf-8");
-      const maxLength = 4000;
-      if (content.length > maxLength) {
-        content = "[TRUNCATED] " + content.slice(-maxLength);
-      }
-      return content;
+  const home = process.env.HOME || process.env.USERPROFILE || (process.platform === "win32" ? "C:\\Users\\default" : "/root");
+  const worklogPath = path.join(home, ".automaton", "WORKLOG.md");
+  let content = cachedFileRead(worklogPath);
+  if (content !== null) {
+    const maxLength = 4000;
+    if (content.length > maxLength) {
+      content = "[TRUNCATED] " + content.slice(-maxLength);
     }
-  } catch {
-    // Ignore errors
   }
-  return null;
+  return content;
 }
 
 /**

@@ -75,7 +75,8 @@ export type EventType =
   | "market_signal"
   | "revenue"
   | "error"
-  | "reflection";
+  | "reflection"
+  | "compression_warning";
 
 export interface StreamEvent {
   id: string;
