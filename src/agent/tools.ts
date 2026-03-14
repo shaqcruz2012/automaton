@@ -2824,6 +2824,111 @@ Model: ${ctx.inference.getDefaultModel()}
       },
     },
 
+    // === Social Reply Tool ===
+    {
+      name: "reply_social",
+      description:
+        "Reply to a social message (Telegram, Twitter, etc.). " +
+        "Use this to respond to users who sent you messages via the social inbox.",
+      category: "social" as ToolCategory,
+      riskLevel: "caution" as RiskLevel,
+      parameters: {
+        type: "object",
+        properties: {
+          to: {
+            type: "string",
+            description: "Chat/user ID to reply to (from the inbox message)",
+          },
+          content: {
+            type: "string",
+            description: "Reply message content",
+          },
+          reply_to: {
+            type: "string",
+            description: "Optional message ID to reply to (for threading)",
+          },
+        },
+        required: ["to", "content"],
+      },
+      execute: async (args, ctx) => {
+        if (!ctx.social) {
+          return "Social relay not configured. No Telegram/Twitter credentials set.";
+        }
+        const to = args.to as string;
+        const content = args.content as string;
+        const replyTo = args.reply_to as string | undefined;
+
+        if (!content.trim()) {
+          return "Cannot send empty reply.";
+        }
+
+        try {
+          const result = await ctx.social.send(to, content, replyTo);
+          return `Reply sent (id: ${result.id})`;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return `Failed to send reply: ${msg}`;
+        }
+      },
+    },
+
+    // === URL Summarizer Skill Tool ===
+    {
+      name: "summarize_url",
+      description:
+        "Summarize a URL using the URL Summarizer skill. Calls the local summarizer " +
+        "microservice and records revenue/expense. Use when a user asks you to summarize a web page.",
+      category: "skill" as ToolCategory,
+      riskLevel: "safe" as RiskLevel,
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            description: "The URL to summarize",
+          },
+          detail_level: {
+            type: "string",
+            enum: ["short", "medium", "long"],
+            description: "Level of detail (default: medium)",
+          },
+        },
+        required: ["url"],
+      },
+      execute: async (args, ctx) => {
+        const { summarizeUrlForClient } = await import("../skills/revenue/url-summarizer.js");
+        const url = args.url as string;
+        const detailLevel = (args.detail_level as "short" | "medium" | "long") ?? "medium";
+
+        try {
+          const result = await summarizeUrlForClient(ctx.db.raw, {
+            url,
+            detail_level: detailLevel,
+            apiKey: "internal",
+          });
+
+          if (!result.success) {
+            return `URL summarization failed: ${result.error}`;
+          }
+
+          return [
+            `**${result.title ?? "Summary"}**`,
+            "",
+            result.summary ?? "",
+            "",
+            result.keyPoints?.length
+              ? "**Key Points:**\n" + result.keyPoints.map((p) => `- ${p}`).join("\n")
+              : "",
+            "",
+            `Word count: ${result.wordCount ?? "N/A"} | Latency: ${result.latencyMs}ms`,
+          ].filter(Boolean).join("\n");
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return `URL summarization error: ${msg}`;
+        }
+      },
+    },
+
     // === Orchestration Tools ===
     {
       name: "create_goal",
