@@ -394,6 +394,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       const failedActions = actions.filter((action) => !action.success).length;
       const shouldWake = report.unhealthyAgents > 0 || failedActions > 0;
 
+      markTaskRan(taskCtx, "colony_health_check");
       return {
         shouldWake,
         message: shouldWake
@@ -460,6 +461,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       };
 
       taskCtx.db.setKV("last_colony_financial_report", JSON.stringify(report));
+      markTaskRan(taskCtx, "colony_financial_report");
       return { shouldWake: false };
     } catch (error) {
       logger.error("colony_financial_report failed", error instanceof Error ? error : undefined);
@@ -546,6 +548,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         }));
       }
 
+      markTaskRan(taskCtx, "agent_pool_optimize");
       return {
         shouldWake: spawnRequested > 0,
         message: spawnRequested > 0
@@ -573,6 +576,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         pruned,
       }));
 
+      markTaskRan(taskCtx, "knowledge_store_prune");
       return { shouldWake: false };
     } catch (error) {
       logger.error("knowledge_store_prune failed", error instanceof Error ? error : undefined);
@@ -599,6 +603,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         cleaned,
       }));
 
+      markTaskRan(taskCtx, "dead_agent_cleanup");
       return { shouldWake: false };
     } catch (error) {
       logger.error("dead_agent_cleanup failed", error instanceof Error ? error : undefined);
@@ -821,8 +826,15 @@ function shouldRunAtInterval(
     }
   }
 
-  taskCtx.db.setKV(key, new Date(now).toISOString());
   return true;
+}
+
+function markTaskRan(
+  taskCtx: HeartbeatLegacyContext,
+  taskName: string,
+): void {
+  const key = `heartbeat.last_run.${taskName}`;
+  taskCtx.db.setKV(key, new Date().toISOString());
 }
 
 async function createHealthMonitor(taskCtx: HeartbeatLegacyContext): Promise<ColonyHealthMonitor> {

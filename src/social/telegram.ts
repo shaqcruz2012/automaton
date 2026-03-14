@@ -82,15 +82,16 @@ const LONG_POLL_TIMEOUT_SECONDS = 30;
 const DEFAULT_POLL_LIMIT = 100;
 const MAX_MESSAGE_LENGTH = 4096;
 const REQUEST_TIMEOUT_MS = (LONG_POLL_TIMEOUT_SECONDS + 5) * 1000;
+const MAX_INBOUND_LENGTH = 4096;
 
 // ─── Helpers ────────────────────────────────────────────────────
 
 function extractTextContent(msg: TelegramMessage): string {
   if (msg.text != null && msg.text.length > 0) {
-    return msg.text;
+    return msg.text.slice(0, MAX_INBOUND_LENGTH);
   }
   if (msg.caption != null && msg.caption.length > 0) {
-    return msg.caption;
+    return msg.caption.slice(0, MAX_INBOUND_LENGTH);
   }
   if (msg.sticker != null) {
     return msg.sticker.emoji != null ? `[sticker: ${msg.sticker.emoji}]` : "[sticker]";
@@ -195,7 +196,10 @@ class TelegramClient implements SocialClientInterface {
     };
 
     if (replyTo != null) {
-      body.reply_to_message_id = Number(replyTo);
+      const replyId = Number(replyTo);
+      if (Number.isFinite(replyId)) {
+        body.reply_to_message_id = replyId;
+      }
     }
 
     try {
@@ -222,7 +226,10 @@ class TelegramClient implements SocialClientInterface {
         });
         const plainBody: Record<string, unknown> = { chat_id: chatId, text };
         if (replyTo != null) {
-          plainBody.reply_to_message_id = Number(replyTo);
+          const replyId = Number(replyTo);
+          if (Number.isFinite(replyId)) {
+            plainBody.reply_to_message_id = replyId;
+          }
         }
         const retryResponse = await this.apiCall<TelegramSendMessageResult>(
           "sendMessage",

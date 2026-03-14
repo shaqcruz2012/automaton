@@ -264,11 +264,30 @@ describe("read_file sensitive file blocking", () => {
     expect(result).toContain("Blocked");
   });
 
+  it("allows reading normal .ts files", async () => {
+    const readTool = tools.find((t) => t.name === "read_file")!;
+    conway.files["/home/automaton/src/index.ts"] = "console.log('hello');";
+    const result = await readTool.execute({ path: "/home/automaton/src/index.ts" }, ctx);
+    expect(result).not.toContain("Blocked");
+  });
+
   it("allows reading safe files", async () => {
     const readTool = tools.find((t) => t.name === "read_file")!;
     conway.files["/home/automaton/README.md"] = "# Hello";
     const result = await readTool.execute({ path: "/home/automaton/README.md" }, ctx);
     expect(result).not.toContain("Blocked");
+  });
+
+  it("blocks path traversal ../../.env", async () => {
+    const readTool = tools.find((t) => t.name === "read_file")!;
+    const result = await readTool.execute({ path: "/home/automaton/src/../../.env" }, ctx);
+    expect(result).toContain("Blocked");
+  });
+
+  it("blocks Windows-style path traversal to .env", async () => {
+    const readTool = tools.find((t) => t.name === "read_file")!;
+    const result = await readTool.execute({ path: "C:\\foo\\..\\.env" }, ctx);
+    expect(result).toContain("Blocked");
   });
 });
 

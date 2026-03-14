@@ -92,18 +92,12 @@ export function recordRevenue(
  * Estimate and log the cost of processing a request.
  * Estimates based on input token count and model used.
  *
- * STUB: Cost estimation formulas:
- * - claude-haiku-4-5-20251001: ~$0.80 per 1M input tokens → ~$0.0008 per 1K tokens
- *   → 0.08 cents per 1K tokens
- * - claude-sonnet-4-20250514: ~$3.00 per 1M input tokens → ~$0.003 per 1K tokens
- *   → 0.30 cents per 1K tokens
- * - gpt-4o-mini: ~$0.15 per 1M input tokens → ~$0.00015 per 1K tokens (fallback)
- * - gpt-4o: ~$2.50 per 1M input tokens → ~$0.0025 per 1K tokens (fallback)
+ * Cost estimation formulas (per 1M tokens → per 1K tokens → cents per 1K):
+ * - claude-haiku-4-5-20251001: input $0.80/1M (0.08¢/1K), output $4.00/1M (0.40¢/1K)
+ * - claude-sonnet-4-20250514:  input $3.00/1M (0.30¢/1K), output $15.00/1M (1.50¢/1K)
+ * - gpt-4o-mini:               input $0.15/1M (0.015¢/1K), output $0.60/1M (0.06¢/1K)
+ * - gpt-4o:                    input $2.50/1M (0.25¢/1K),  output $10.00/1M (1.00¢/1K)
  * - Plus fixed infra overhead of $0.01 per request (1 cent)
- *
- * These are input-only estimates; output token costs are not included
- * since we're generating stub responses. In production, output costs
- * would be added based on actual completion token counts.
  *
  * @returns estimated cost in cents
  */
@@ -112,26 +106,32 @@ export function recordExpense(
   params: {
     tier: string;
     model: string;
-    inputTokensEstimate: number;
+    inputTokens: number;
+    outputTokens: number;
     requestId: string;
     nicheId?: string;
     experimentId?: string;
   },
 ): number {
-  // Cost per 1K input tokens in cents
-  // claude-haiku-4-5-20251001: $0.80/1M = $0.0008/1K = 0.08 cents/1K
-  // claude-sonnet-4-20250514: $3.00/1M = $0.003/1K = 0.30 cents/1K
-  // gpt-4o-mini: $0.15/1M = $0.00015/1K = 0.015 cents/1K (fallback)
-  // gpt-4o:      $2.50/1M = $0.0025/1K  = 0.25 cents/1K (fallback)
-  const costPer1kTokensCents: Record<string, number> = {
+  // Cost per 1K tokens in cents (input / output)
+  const inputCostPer1k: Record<string, number> = {
     "claude-haiku-4-5-20251001": 0.08,
     "claude-sonnet-4-20250514": 0.30,
     "gpt-4o-mini": 0.015,
     "gpt-4o": 0.25,
   };
+  const outputCostPer1k: Record<string, number> = {
+    "claude-haiku-4-5-20251001": 0.40,
+    "claude-sonnet-4-20250514": 1.50,
+    "gpt-4o-mini": 0.06,
+    "gpt-4o": 1.00,
+  };
 
-  const perTokenCost = costPer1kTokensCents[params.model] ?? 0.08; // default to claude-haiku rate
-  const tokenCostCents = (params.inputTokensEstimate / 1000) * perTokenCost;
+  const inputRate = inputCostPer1k[params.model] ?? 0.08;
+  const outputRate = outputCostPer1k[params.model] ?? 0.40;
+  const tokenCostCents =
+    (params.inputTokens / 1000) * inputRate +
+    (params.outputTokens / 1000) * outputRate;
 
   // Fixed infra overhead: $0.01 = 1 cent per request
   const infraOverheadCents = 1;
@@ -141,11 +141,12 @@ export function recordExpense(
   logExpense(db, {
     category: "inference",
     amountCents: totalCostCents,
-    description: `Cost for ${params.tier} skill (model: ${params.model}, ~${params.inputTokensEstimate} input tokens)`,
+    description: `Cost for ${params.tier} skill (model: ${params.model}, ~${params.inputTokens} input + ~${params.outputTokens} output tokens)`,
     metadata: {
       requestId: params.requestId,
       model: params.model,
-      inputTokensEstimate: params.inputTokensEstimate,
+      inputTokens: params.inputTokens,
+      outputTokens: params.outputTokens,
       tokenCostCents,
       infraOverheadCents,
     },

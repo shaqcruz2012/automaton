@@ -17,6 +17,8 @@ const logger = createLogger("social.twitter");
 
 const TWITTER_API_BASE = "https://api.twitter.com/2/";
 const TWITTER_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_TWEET_LENGTH = 280;
+const DEFAULT_429_BACKOFF_MS = 15 * 60 * 1000; // 15 minutes
 
 // ─── Configuration ──────────────────────────────────────────────
 
@@ -310,6 +312,11 @@ export function createTwitterClient(
     content: string,
     replyTo?: string,
   ): Promise<{ id: string }> => {
+    if (content.length > MAX_TWEET_LENGTH) {
+      logger.warn("Tweet exceeds 280 character limit", { length: content.length });
+      return { id: "" };
+    }
+
     const { blocked, updatedState } = checkRateLimit(state.writeRateLimit);
     state = updateState(state, { writeRateLimit: updatedState });
 
@@ -335,7 +342,16 @@ export function createTwitterClient(
       });
 
       if (status === 429) {
-        logger.warn("Twitter API returned 429 on send, rate-limited");
+        const hasRateLimitHeaders = headers.get("x-rate-limit-reset") !== null;
+        if (!hasRateLimitHeaders) {
+          const defaultResetsAt = Date.now() + DEFAULT_429_BACKOFF_MS;
+          logger.warn("Twitter API returned 429 without rate limit headers, applying 15m default backoff", {
+            resetsAt: new Date(defaultResetsAt).toISOString(),
+          });
+          state = updateState(state, {
+            writeRateLimit: createRateLimitState(true, defaultResetsAt),
+          });
+        }
         return { id: "" };
       }
 
@@ -403,7 +419,16 @@ export function createTwitterClient(
       });
 
       if (status === 429) {
-        logger.warn("Twitter API returned 429 on poll, rate-limited");
+        const hasRateLimitHeaders = headers.get("x-rate-limit-reset") !== null;
+        if (!hasRateLimitHeaders) {
+          const defaultResetsAt = Date.now() + DEFAULT_429_BACKOFF_MS;
+          logger.warn("Twitter API returned 429 on poll without rate limit headers, applying 15m default backoff", {
+            resetsAt: new Date(defaultResetsAt).toISOString(),
+          });
+          state = updateState(state, {
+            readRateLimit: createRateLimitState(true, defaultResetsAt),
+          });
+        }
         return { messages: [] };
       }
 
@@ -486,7 +511,16 @@ export function createTwitterClient(
       });
 
       if (status === 429) {
-        logger.warn("Twitter API returned 429 on unreadCount");
+        const hasRateLimitHeaders = headers.get("x-rate-limit-reset") !== null;
+        if (!hasRateLimitHeaders) {
+          const defaultResetsAt = Date.now() + DEFAULT_429_BACKOFF_MS;
+          logger.warn("Twitter API returned 429 on unreadCount without rate limit headers, applying 15m default backoff", {
+            resetsAt: new Date(defaultResetsAt).toISOString(),
+          });
+          state = updateState(state, {
+            readRateLimit: createRateLimitState(true, defaultResetsAt),
+          });
+        }
         return 0;
       }
 

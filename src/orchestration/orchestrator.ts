@@ -9,6 +9,8 @@ import {
   failTask,
   getGoalProgress,
   getReadyTasks,
+  resetGoalTasks,
+  resetTask,
   type Goal,
   type TaskNode,
   type TaskResult,
@@ -283,26 +285,6 @@ export class Orchestrator {
 
   async handleFailure(task: TaskNode, error: string): Promise<void> {
     failTask(this.params.db, task.id, error, true);
-
-    const latest = getTaskById(this.params.db, task.id);
-    if (!latest || latest.status !== "failed") {
-      return;
-    }
-
-    const state = this.loadState();
-    const maxReplans = this.getMaxReplans();
-
-    if (state.replanCount < maxReplans) {
-      updateGoalStatus(this.params.db, task.goalId, "active");
-    }
-
-    this.saveState({
-      ...state,
-      phase: state.replanCount < maxReplans ? "replanning" : "failed",
-      goalId: task.goalId,
-      failedTaskId: task.id,
-      failedError: error,
-    });
   }
 
   private handleIdlePhase(state: OrchestratorState): OrchestratorState {

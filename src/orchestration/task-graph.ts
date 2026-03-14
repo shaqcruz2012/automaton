@@ -4,6 +4,8 @@ import {
   getGoalById,
   getReadyTasks as getReadyTaskRows,
   getTaskById,
+  getTasksByGoal as getTasksByGoalRows,
+  insertEvent,
   insertGoal,
   insertTask,
   updateGoalStatus,
@@ -319,6 +321,81 @@ export function failTask(db: Database, taskId: string, error: string, shouldRetr
 
     blockDependentsForFailedTask(db, taskId);
     refreshGoalStatus(db, task.goalId);
+  });
+}
+
+/**
+ * Reset a task back to pending, clearing its assignment and timestamps.
+ * Used for dead-worker recovery when a worker dies while a task is assigned.
+ * Validates the task exists and logs an event for audit trail.
+ */
+export function resetTask(
+  db: Database,
+  taskId: string,
+  reason: string,
+  agentAddress: string,
+): void {
+  withTransaction(db, () => {
+    const task = getTaskById(db, taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    if (task.status !== "assigned" && task.status !== "running") {
+      throw new Error(`Task ${taskId} cannot be reset from status '${task.status}'`);
+    }
+
+    db.prepare(
+      `UPDATE task_graph
+       SET status = 'pending', assigned_to = NULL, started_at = NULL
+       WHERE id = ?`,
+    ).run(taskId);
+
+    insertEvent(db, {
+      type: "task_reset",
+      agentAddress,
+      goalId: task.goalId,
+      taskId,
+      content: JSON.stringify({ reason, previousWorker: task.assignedTo }),
+      tokenCount: 0,
+    });
+  });
+}
+
+/**
+ * Reset all failed/blocked tasks for a goal back to pending.
+ * Used during replanning to give tasks a fresh start.
+ * Validates tasks exist and logs events for audit trail.
+ */
+export function resetGoalTasks(
+  db: Database,
+  goalId: string,
+  agentAddress: string,
+): void {
+  withTransaction(db, () => {
+    const tasks = getTasksByGoalRows(db, goalId)
+      .filter((t) => t.status === "failed" || t.status === "blocked");
+
+    for (const task of tasks) {
+      db.prepare(
+        `UPDATE task_graph
+         SET status = 'pending',
+             assigned_to = NULL,
+             started_at = NULL,
+             completed_at = NULL,
+             result = NULL
+         WHERE id = ?`,
+      ).run(task.id);
+
+      insertEvent(db, {
+        type: "task_reset",
+        agentAddress,
+        goalId,
+        taskId: task.id,
+        content: JSON.stringify({ reason: "replan", previousStatus: task.status }),
+        tokenCount: 0,
+      });
+    }
   });
 }
 

@@ -26,7 +26,7 @@ type Database = BetterSqlite3.Database;
 const logger = createLogger("skill.url-summarizer");
 
 /** Validate URL to prevent SSRF attacks */
-function validateUrl(raw: string): void {
+export function validateUrl(raw: string): void {
   let parsed: URL;
   try {
     parsed = new URL(raw);

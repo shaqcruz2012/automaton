@@ -36,7 +36,8 @@ const logger = createLogger("cascade");
  * (e.g., Mistral: "Expected last role User or Tool but got assistant").
  * Auth errors (invalid API key) should NOT cascade — they'll fail everywhere.
  */
-function isCascadable400(errMsg: string): boolean {
+/** @internal exported for testing */
+export function isCascadable400(errMsg: string): boolean {
   if (!/\b400\b/.test(errMsg)) return false;
   // Message-ordering errors fail identically on every provider — don't cascade
   if (/message.order|role.*order|last.role|Expected.*role/i.test(errMsg)) return false;
@@ -50,7 +51,7 @@ function isCascadable400(errMsg: string): boolean {
 }
 
 /** Cache P&L for 2 minutes to avoid constant DB queries */
-const PNL_CACHE_TTL_MS = 2 * 60 * 1000;
+export const PNL_CACHE_TTL_MS = 2 * 60 * 1000;
 
 /** Default timeout for direct provider calls (used as fallback) */
 const PROVIDER_TIMEOUT_MS = 60_000;
@@ -61,14 +62,15 @@ const PROVIDER_TIMEOUT_MS = 60_000;
  * - 2ms per requested token
  * - 120s maximum (large reasoning tasks ~8K tokens)
  */
-function computeTimeoutMs(maxTokens: number | undefined): number {
+/** @internal exported for testing */
+export function computeTimeoutMs(maxTokens: number | undefined): number {
   return Math.min(120_000, Math.max(15_000, 15_000 + (maxTokens ?? 4096) * 2));
 }
 
 /** Circuit breaker: disable provider after this many consecutive failures */
-const CB_FAILURE_THRESHOLD = 3;
+export const CB_FAILURE_THRESHOLD = 3;
 /** Circuit breaker: keep provider disabled for this long */
-const CB_DISABLE_MS = 2 * 60_000;
+export const CB_DISABLE_MS = 2 * 60_000;
 
 interface CircuitBreakerState {
   failures: number;

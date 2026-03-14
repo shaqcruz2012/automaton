@@ -26,6 +26,38 @@ function truncateOutput(text: string, maxLen: number): string {
   return text.slice(0, maxLen) + `\n[TRUNCATED: ${text.length - maxLen} chars omitted]`;
 }
 
+/**
+ * Check whether a shell command matches known destructive or exfiltration patterns.
+ * Returns true if the command should be blocked.
+ */
+function isDangerousCommand(cmd: string): boolean {
+  const normalized = cmd.trim();
+
+  // Destructive filesystem commands
+  if (/\brm\s+(-\w*\s+)*-rf\s+[/~]/.test(normalized)) return true;
+  if (/\brmdir\s+\/s\b/i.test(normalized)) return true;
+
+  // Dangerous permission changes
+  if (/\bchmod\s+(-R\s+)?777\b/.test(normalized)) return true;
+
+  // Disk/filesystem destruction
+  if (/\bdd\s+if=/.test(normalized)) return true;
+  if (/\bmkfs\b/.test(normalized)) return true;
+
+  // Data exfiltration via pipe
+  if (/\|\s*(curl|wget|nc|ncat|netcat)\b/.test(normalized)) return true;
+
+  // System halt/reboot
+  if (/\b(shutdown|reboot|halt)\b/.test(normalized)) return true;
+
+  // Redirects to sensitive files
+  if (/>\s*\S*\.env\b/.test(normalized)) return true;
+  if (/>\s*\S*wallet\.json\b/.test(normalized)) return true;
+  if (/>\s*\/etc\//.test(normalized)) return true;
+
+  return false;
+}
+
 function localExec(command: string, timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const proc = execCb(command, { timeout: timeoutMs, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
@@ -45,6 +77,17 @@ async function localWriteFile(filePath: string, content: string): Promise<void> 
 
 async function localReadFile(filePath: string): Promise<string> {
   return fs.readFile(filePath, "utf8");
+}
+
+/**
+ * Check whether a file path targets a sensitive file that workers must not read or write.
+ * Used by both read_file and write_file tool guards.
+ */
+export function isSensitiveWorkerPath(filePath: string): boolean {
+  const normalizedPath = path.resolve(filePath);
+  const basename = path.basename(normalizedPath);
+  const sensitiveFiles = ["wallet.json", ".env", "automaton.json"];
+  return sensitiveFiles.includes(basename) || basename.endsWith(".key") || basename.endsWith(".pem");
 }
 
 const logger = createLogger("orchestration.local-worker");
@@ -246,6 +289,16 @@ export class LocalWorkerPool {
             content: toolOutput,
             tool_call_id: toolCall.id,
           });
+
+          // Check if the worker signaled completion via task_done
+          if (fn.name === "task_done") {
+            finalOutput = toolOutput.replace("TASK_COMPLETE: ", "");
+          }
+        }
+
+        if (finalOutput) {
+          logger.info(`[WORKER ${workerId}] task_done on turn ${turn + 1} — ${finalOutput.slice(0, 200)}`);
+          break;
         }
 
         continue;
@@ -257,8 +310,16 @@ export class LocalWorkerPool {
       break;
     }
 
-    // Mark task as completed
     const duration = Date.now() - startedAt;
+
+    // If loop exhausted maxTurns without producing output, fail the task
+    if (!finalOutput) {
+      logger.warn(`[WORKER ${workerId}] Exhausted ${maxTurns} turns without completion`);
+      failTask(this.config.db, task.id, `Worker exhausted ${maxTurns} turns without completing`, true);
+      return;
+    }
+
+    // Mark task as completed
     const result: TaskResult = {
       success: true,
       output: finalOutput,
@@ -338,6 +399,10 @@ RULES:
         execute: async (args) => {
           const command = args.command as string;
           const timeoutMs = typeof args.timeout_ms === "number" ? args.timeout_ms : 30_000;
+
+          if (isDangerousCommand(command)) {
+            return "Blocked: command rejected by safety check.";
+          }
 
           // Try Conway API first, fall back to local shell
           try {

@@ -106,7 +106,8 @@ export class EventStream {
       `SELECT id, type, content, token_count as tokenCount, created_at as createdAt
        FROM event_stream
        WHERE created_at < ? AND compacted_to IS NULL
-       ORDER BY created_at ASC`,
+       ORDER BY created_at ASC
+       LIMIT 5000`,
     ).all(olderThan) as Array<{
       id: string;
       type: string;

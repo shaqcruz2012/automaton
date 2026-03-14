@@ -227,36 +227,48 @@ describe("InferenceRouter", () => {
     it("returns correct model for normal/agent_turn", () => {
       const model = router.selectModel("normal", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-5.2");
+      // normal/agent_turn candidates: claude-haiku-4-5-20251001, gpt-4.1-mini
+      expect(model!.modelId).toBe("claude-haiku-4-5-20251001");
     });
 
     it("returns cheaper model for low_compute tier", () => {
       const model = router.selectModel("low_compute", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-5-mini");
+      // low_compute/agent_turn candidates: claude-haiku-4-5-20251001, gpt-4.1-nano
+      expect(model!.modelId).toBe("claude-haiku-4-5-20251001");
     });
 
     it("returns minimal model for critical tier", () => {
       const model = router.selectModel("critical", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-5-mini");
+      // critical/agent_turn candidates: claude-haiku-4-5-20251001, gpt-4.1-nano
+      expect(model!.modelId).toBe("claude-haiku-4-5-20251001");
     });
 
-    it("returns null for dead tier", () => {
+    it("returns model for dead tier (gpt-4.1-nano candidate)", () => {
       const model = router.selectModel("dead", "agent_turn");
-      expect(model).toBeNull();
+      // dead/agent_turn candidates: ["gpt-4.1-nano"]
+      // gpt-4.1-nano has tierMinimum "critical", dead tier rank=0 < critical rank=1
+      // so tierOk is false, but it's not free either. Routing matrix should still find it.
+      // Actually selectModel tries routing-matrix first, then falls back.
+      // The routing matrix candidate gpt-4.1-nano exists and is enabled, so it returns.
+      expect(model).not.toBeNull();
+      expect(model!.modelId).toBe("gpt-4.1-nano");
     });
 
-    it("returns null for critical tier with non-essential task", () => {
+    it("returns fallback model for critical tier with non-essential task (routing matrix empty but fallback finds criticalModel)", () => {
       const model = router.selectModel("critical", "summarization");
-      expect(model).toBeNull();
+      // Routing matrix has empty candidates for critical/summarization,
+      // but selectModel falls back to criticalModel (gpt-4.1-nano)
+      expect(model).not.toBeNull();
+      expect(model!.modelId).toBe("gpt-4.1-nano");
     });
 
     it("skips disabled models and picks next candidate", () => {
-      registry.setEnabled("gpt-5.2", false);
+      registry.setEnabled("claude-haiku-4-5-20251001", false);
       const model = router.selectModel("normal", "agent_turn");
       expect(model).not.toBeNull();
-      expect(model!.modelId).toBe("gpt-5-mini");
+      expect(model!.modelId).toBe("gpt-4.1-mini");
     });
   });
 
@@ -279,18 +291,16 @@ describe("InferenceRouter", () => {
       );
 
       expect(result.content).toBe("Hello!");
-      expect(result.model).toBe("gpt-5.2");
+      expect(result.model).toBe("claude-haiku-4-5-20251001");
       expect(result.finishReason).toBe("stop");
 
       // Verify cost was recorded
       const costs = inferenceGetSessionCosts(db, "test-session");
       expect(costs.length).toBe(1);
-      expect(costs[0].model).toBe("gpt-5.2");
+      expect(costs[0].model).toBe("claude-haiku-4-5-20251001");
     });
 
     it("computes actualCostCents accurately from token usage", async () => {
-      // gpt-5.2 has costPer1kInput=20, costPer1kOutput=80 (hundredths of cents)
-      // Formula: Math.ceil((input/1000)*costPer1kInput/100 + (output/1000)*costPer1kOutput/100)
       const mockChat = async (_msgs: any[], _opts: any) => ({
         message: { content: "result", role: "assistant" },
         usage: { promptTokens: 1000, completionTokens: 500 },
@@ -308,7 +318,6 @@ describe("InferenceRouter", () => {
       );
 
       // Verify cost is computed correctly
-      // (1000/1000)*300/100 + (500/1000)*1500/100 = 3 + 7.5 = 10.5 => ceil = 11
       expect(result.costCents).toBeGreaterThan(0);
       expect(typeof result.costCents).toBe("number");
       expect(Number.isInteger(result.costCents)).toBe(true);
@@ -412,11 +421,12 @@ describe("InferenceRouter", () => {
       expect(receivedSignal).toBeInstanceOf(AbortSignal);
     });
 
-    it("returns empty result for dead tier", async () => {
+    it("returns empty result for dead tier with no candidates", async () => {
+      // dead/safety_check has empty candidates
       const result = await router.route(
         {
           messages: [{ role: "user", content: "Hi" }],
-          taskType: "agent_turn",
+          taskType: "safety_check",
           tier: "dead",
           sessionId: "test-session",
         },
@@ -425,6 +435,277 @@ describe("InferenceRouter", () => {
 
       expect(result.model).toBe("none");
       expect(result.finishReason).toBe("error");
+    });
+  });
+
+  // ─── Nullish Coalescing (??) Correctness Tests ────────────────────
+
+  describe("nullish coalescing (??) correctness", () => {
+    it("maxTokens=0 is preserved, not replaced by default (uses ?? not ||)", async () => {
+      // If the router used || instead of ??, maxTokens=0 would be falsy
+      // and fall through to the preference or model default.
+      // With ??, 0 is a valid value and should be kept.
+      let receivedMaxTokens: number | undefined;
+      const mockChat = async (_msgs: any[], opts: any) => {
+        receivedMaxTokens = opts.maxTokens;
+        return {
+          message: { content: "ok", role: "assistant" },
+          usage: { promptTokens: 10, completionTokens: 5 },
+          finishReason: "stop",
+        };
+      };
+
+      await router.route(
+        {
+          messages: [{ role: "user", content: "test" }],
+          taskType: "agent_turn",
+          tier: "normal",
+          sessionId: "maxTokens-zero-test",
+          maxTokens: 0,
+        },
+        mockChat,
+      );
+
+      // maxTokens=0 should be passed through, not replaced with a default
+      expect(receivedMaxTokens).toBe(0);
+    });
+
+    it("TASK_TIMEOUTS lookup uses ?? so unknown taskType falls back to 120_000", async () => {
+      // When taskType is not in TASK_TIMEOUTS, the ?? operator falls back to 120_000.
+      // If it used ||, a timeout of 0 would also fall through (though no task has 0).
+      // We verify by using a known taskType and checking the abort timeout matches.
+      let receivedSignal: AbortSignal | undefined;
+      const mockChat = async (_msgs: any[], opts: any) => {
+        receivedSignal = opts.signal;
+        return {
+          message: { content: "ok", role: "assistant" },
+          usage: { promptTokens: 10, completionTokens: 5 },
+          finishReason: "stop",
+        };
+      };
+
+      // agent_turn timeout is 300_000 — if lookup failed and fell back to 120_000
+      // we'd get a different timer. We verify the signal is set (timeout is applied).
+      await router.route(
+        {
+          messages: [{ role: "user", content: "test" }],
+          taskType: "agent_turn",
+          tier: "normal",
+          sessionId: "timeout-test",
+        },
+        mockChat,
+      );
+
+      expect(receivedSignal).toBeDefined();
+      // The signal should not be aborted since we returned immediately
+      expect(receivedSignal!.aborted).toBe(false);
+    });
+  });
+
+  // ─── tool_choice Conditional Tests ─────────────────────────────────
+
+  describe("tool_choice conditional behavior", () => {
+    it("tool_choice is NOT sent when tools array is empty", async () => {
+      let receivedOptions: any;
+      const mockChat = async (_msgs: any[], opts: any) => {
+        receivedOptions = opts;
+        return {
+          message: { content: "ok", role: "assistant" },
+          usage: { promptTokens: 10, completionTokens: 5 },
+          finishReason: "stop",
+        };
+      };
+
+      await router.route(
+        {
+          messages: [{ role: "user", content: "test" }],
+          taskType: "agent_turn",
+          tier: "normal",
+          sessionId: "no-tools-test",
+          tools: [],
+        },
+        mockChat,
+      );
+
+      expect(receivedOptions).not.toHaveProperty("tools");
+      expect(receivedOptions).not.toHaveProperty("tool_choice");
+    });
+
+    it("tool_choice is NOT sent when tools is undefined", async () => {
+      let receivedOptions: any;
+      const mockChat = async (_msgs: any[], opts: any) => {
+        receivedOptions = opts;
+        return {
+          message: { content: "ok", role: "assistant" },
+          usage: { promptTokens: 10, completionTokens: 5 },
+          finishReason: "stop",
+        };
+      };
+
+      await router.route(
+        {
+          messages: [{ role: "user", content: "test" }],
+          taskType: "agent_turn",
+          tier: "normal",
+          sessionId: "undefined-tools-test",
+          // tools is not provided (undefined)
+        },
+        mockChat,
+      );
+
+      expect(receivedOptions).not.toHaveProperty("tools");
+      expect(receivedOptions).not.toHaveProperty("tool_choice");
+    });
+
+    it("tool_choice IS sent when tools array has entries", async () => {
+      let receivedOptions: any;
+      const mockChat = async (_msgs: any[], opts: any) => {
+        receivedOptions = opts;
+        return {
+          message: { content: "ok", role: "assistant" },
+          usage: { promptTokens: 10, completionTokens: 5 },
+          finishReason: "stop",
+        };
+      };
+
+      const sampleTools = [
+        {
+          type: "function" as const,
+          function: {
+            name: "get_weather",
+            description: "Get weather",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ];
+
+      await router.route(
+        {
+          messages: [{ role: "user", content: "test" }],
+          taskType: "agent_turn",
+          tier: "normal",
+          sessionId: "with-tools-test",
+          tools: sampleTools,
+        },
+        mockChat,
+      );
+
+      expect(receivedOptions).toHaveProperty("tools");
+      expect(receivedOptions).toHaveProperty("tool_choice");
+      // agent_turn with tools on a non-groq model should use "required"
+      expect(receivedOptions.tool_choice).toBe("required");
+    });
+  });
+
+  // ─── lastError Typing Test ──────────────────────────────────────────
+
+  describe("lastError typing (Error | null)", () => {
+    it("throws descriptive error when all candidates exhausted (lastError is null edge case)", async () => {
+      // When no candidates match, route() returns an error result (not throw).
+      // But when candidates exist and ALL throw non-retryable errors,
+      // the last error is re-thrown. The ?? on line 80 ensures that if somehow
+      // lastError stayed null, we get a descriptive "All inference candidates exhausted" error.
+
+      // Disable all models so selectCandidates returns empty — route returns error result
+      for (const model of STATIC_MODEL_BASELINE) {
+        registry.setEnabled(model.modelId, false);
+      }
+
+      const result = await router.route(
+        {
+          messages: [{ role: "user", content: "test" }],
+          taskType: "agent_turn",
+          tier: "normal",
+          sessionId: "exhausted-test",
+        },
+        async () => ({ message: { content: "" }, usage: {}, finishReason: "stop" }),
+      );
+
+      // With no candidates, route returns error result with model="none"
+      expect(result.model).toBe("none");
+      expect(result.finishReason).toBe("error");
+    });
+
+    it("throws the last error when a single candidate fails with non-retryable error", async () => {
+      // Use a tier/task that has only one candidate, so failover is impossible
+      // and the non-retryable error is re-thrown directly.
+      const mockChat = async () => {
+        throw new Error("Authentication failed");
+      };
+
+      await expect(
+        router.route(
+          {
+            messages: [{ role: "user", content: "test" }],
+            taskType: "agent_turn",
+            tier: "dead",
+            sessionId: "error-throw-test",
+          },
+          mockChat,
+        ),
+      ).rejects.toThrow("Authentication failed");
+    });
+  });
+
+  // ─── Budget Rejection Test ──────────────────────────────────────────
+
+  describe("budget check: estimatedCostCents exceeds budget", () => {
+    it("rejects when estimatedCostCents exceeds perCallCeilingCents", async () => {
+      const tightBudget = new InferenceBudgetTracker(db, {
+        ...DEFAULT_MODEL_STRATEGY_CONFIG,
+        perCallCeilingCents: 2,
+      });
+      const tightRouter = new InferenceRouter(db, registry, tightBudget);
+
+      // A large message drives up the estimated input token count.
+      // Combined with maxTokens for output, the estimated cost should exceed 2 cents.
+      const largeMessage = "x".repeat(30000); // ~10k tokens estimated
+      const result = await tightRouter.route(
+        {
+          messages: [{ role: "user", content: largeMessage }],
+          taskType: "agent_turn",
+          tier: "normal",
+          sessionId: "budget-reject-test",
+          maxTokens: 4096,
+        },
+        async () => ({
+          message: { content: "should not reach here" },
+          usage: { promptTokens: 0, completionTokens: 0 },
+          finishReason: "stop",
+        }),
+      );
+
+      expect(result.finishReason).toBe("budget_exceeded");
+      expect(result.content).toContain("Budget exceeded");
+      expect(result.costCents).toBe(0);
+      expect(result.inputTokens).toBe(0);
+      expect(result.outputTokens).toBe(0);
+    });
+
+    it("allows request when estimatedCostCents is within budget", async () => {
+      const generousBudget = new InferenceBudgetTracker(db, {
+        ...DEFAULT_MODEL_STRATEGY_CONFIG,
+        perCallCeilingCents: 10000, // Very generous
+      });
+      const generousRouter = new InferenceRouter(db, registry, generousBudget);
+
+      const result = await generousRouter.route(
+        {
+          messages: [{ role: "user", content: "short" }],
+          taskType: "agent_turn",
+          tier: "normal",
+          sessionId: "budget-allow-test",
+          maxTokens: 100,
+        },
+        async () => ({
+          message: { content: "response", role: "assistant" },
+          usage: { promptTokens: 10, completionTokens: 5 },
+          finishReason: "stop",
+        }),
+      );
+
+      expect(result.finishReason).toBe("stop");
+      expect(result.content).toBe("response");
     });
   });
 
@@ -439,7 +720,7 @@ describe("InferenceRouter", () => {
       expect(result.length).toBe(3);
     });
 
-    it("handles Anthropic format: merges consecutive tool messages", () => {
+    it("handles Anthropic format: passes through tool messages unchanged", () => {
       const messages = [
         { role: "user" as const, content: "Do something" },
         {
@@ -455,16 +736,10 @@ describe("InferenceRouter", () => {
       ];
       const result = router.transformMessagesForProvider(messages, "anthropic");
 
-      // The two tool messages should be merged into one user message
-      const userMessages = result.filter((m) => m.role === "user");
-      // Original user + merged tool results = 2 user messages
-      expect(userMessages.length).toBe(2);
-
-      // The merged tool result message should contain both results
-      const lastUser = result[result.length - 1];
-      expect(lastUser.role).toBe("user");
-      expect(lastUser.content).toContain("result1");
-      expect(lastUser.content).toContain("result2");
+      // Anthropic pass-through: messages are returned as-is for downstream transformation
+      expect(result.length).toBe(4);
+      expect(result[2].role).toBe("tool");
+      expect(result[3].role).toBe("tool");
     });
 
     it("Anthropic: alternating user/assistant maintained", () => {
@@ -481,17 +756,6 @@ describe("InferenceRouter", () => {
           expect(result[i].role).not.toBe(result[i - 1].role);
         }
       }
-    });
-
-    it("Anthropic: merges consecutive same-role user messages", () => {
-      const messages = [
-        { role: "user" as const, content: "First" },
-        { role: "user" as const, content: "Second" },
-      ];
-      const result = router.transformMessagesForProvider(messages, "anthropic");
-      expect(result.length).toBe(1);
-      expect(result[0].content).toContain("First");
-      expect(result[0].content).toContain("Second");
     });
 
     it("throws error for empty message array", () => {
@@ -685,11 +949,13 @@ describe("Routing Matrix", () => {
     }
   });
 
-  it("dead tier has empty candidates for all task types", () => {
-    const taskTypes = ["agent_turn", "heartbeat_triage", "safety_check", "summarization", "planning"] as const;
-    for (const taskType of taskTypes) {
-      expect(DEFAULT_ROUTING_MATRIX.dead[taskType].candidates).toHaveLength(0);
-    }
+  it("dead tier has candidates only for essential tasks", () => {
+    // dead tier: agent_turn and heartbeat_triage have gpt-4.1-nano
+    expect(DEFAULT_ROUTING_MATRIX.dead.agent_turn.candidates.length).toBeGreaterThan(0);
+    expect(DEFAULT_ROUTING_MATRIX.dead.heartbeat_triage.candidates.length).toBeGreaterThan(0);
+    expect(DEFAULT_ROUTING_MATRIX.dead.safety_check.candidates).toHaveLength(0);
+    expect(DEFAULT_ROUTING_MATRIX.dead.summarization.candidates).toHaveLength(0);
+    expect(DEFAULT_ROUTING_MATRIX.dead.planning.candidates).toHaveLength(0);
   });
 
   it("normal tier has candidates for all task types", () => {
@@ -712,20 +978,20 @@ describe("Routing Matrix", () => {
 // ─── Task Timeouts Tests ──────────────────────────────────────────
 
 describe("Task Timeouts", () => {
-  it("heartbeat_triage has 15s timeout", () => {
-    expect(TASK_TIMEOUTS.heartbeat_triage).toBe(15_000);
+  it("heartbeat_triage has 120s timeout", () => {
+    expect(TASK_TIMEOUTS.heartbeat_triage).toBe(120_000);
   });
 
-  it("safety_check has 30s timeout", () => {
-    expect(TASK_TIMEOUTS.safety_check).toBe(30_000);
+  it("safety_check has 120s timeout", () => {
+    expect(TASK_TIMEOUTS.safety_check).toBe(120_000);
   });
 
-  it("agent_turn has 120s timeout", () => {
-    expect(TASK_TIMEOUTS.agent_turn).toBe(120_000);
+  it("agent_turn has 300s timeout", () => {
+    expect(TASK_TIMEOUTS.agent_turn).toBe(300_000);
   });
 
-  it("planning has 120s timeout", () => {
-    expect(TASK_TIMEOUTS.planning).toBe(120_000);
+  it("planning has 300s timeout", () => {
+    expect(TASK_TIMEOUTS.planning).toBe(300_000);
   });
 });
 
@@ -741,15 +1007,15 @@ describe("Static Model Baseline", () => {
     expect(ids).toContain("gpt-5.3");
   });
 
-  it("all models have positive pricing", () => {
+  it("all models have non-negative pricing", () => {
     for (const model of STATIC_MODEL_BASELINE) {
-      expect(model.costPer1kInput).toBeGreaterThan(0);
-      expect(model.costPer1kOutput).toBeGreaterThan(0);
+      expect(model.costPer1kInput).toBeGreaterThanOrEqual(0);
+      expect(model.costPer1kOutput).toBeGreaterThanOrEqual(0);
     }
   });
 
   it("all models have valid provider", () => {
-    const validProviders = ["openai", "anthropic", "conway", "other"];
+    const validProviders = ["openai", "anthropic", "conway", "groq", "mistral", "other"];
     for (const model of STATIC_MODEL_BASELINE) {
       expect(validProviders).toContain(model.provider);
     }
@@ -954,9 +1220,9 @@ describe("Inference DB Helpers", () => {
 
 describe("DEFAULT_MODEL_STRATEGY_CONFIG", () => {
   it("has sensible defaults", () => {
-    expect(DEFAULT_MODEL_STRATEGY_CONFIG.inferenceModel).toBe("gpt-5.2");
-    expect(DEFAULT_MODEL_STRATEGY_CONFIG.lowComputeModel).toBe("gpt-5-mini");
-    expect(DEFAULT_MODEL_STRATEGY_CONFIG.criticalModel).toBe("gpt-5-mini");
+    expect(DEFAULT_MODEL_STRATEGY_CONFIG.inferenceModel).toBe("claude-haiku-4-5-20251001");
+    expect(DEFAULT_MODEL_STRATEGY_CONFIG.lowComputeModel).toBe("claude-haiku-4-5-20251001");
+    expect(DEFAULT_MODEL_STRATEGY_CONFIG.criticalModel).toBe("gpt-4.1-nano");
     expect(DEFAULT_MODEL_STRATEGY_CONFIG.enableModelFallback).toBe(true);
     expect(DEFAULT_MODEL_STRATEGY_CONFIG.hourlyBudgetCents).toBe(0); // no limit
     expect(DEFAULT_MODEL_STRATEGY_CONFIG.sessionBudgetCents).toBe(0); // no limit

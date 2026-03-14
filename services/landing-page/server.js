@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.LANDING_PORT ?? '3000', 10);
-const WALLET_ADDRESS = process.env.WALLET_ADDRESS || '0xad045ca2979269Bb7471DC9750BfFeaa24E8A706';
+const WALLET_ADDRESS = process.env.WALLET_ADDRESS || process.env.GATEWAY_WALLET_ADDRESS || null;
 
 // ── OpenAPI-like schema ──────────────────────────────────────────
 
@@ -45,7 +45,7 @@ const API_DOCS = {
     network: 'base (eip155:8453)',
     token: 'USDC',
     tokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-    recipient: WALLET_ADDRESS,
+    recipient: WALLET_ADDRESS ?? 'not-configured',
     facilitator: 'https://x402.org/facilitator',
   },
   paths: {
@@ -335,7 +335,12 @@ let htmlCache = null;
 async function getHtml() {
   if (htmlCache !== null) return htmlCache;
   const htmlPath = join(__dirname, 'index.html');
-  htmlCache = await readFile(htmlPath, 'utf8');
+  let raw = await readFile(htmlPath, 'utf8');
+  const walletDisplay = WALLET_ADDRESS ?? 'Wallet address not configured';
+  const walletTitle = WALLET_ADDRESS ? 'Click to copy' : '';
+  raw = raw.replace('{{WALLET_ADDRESS}}', walletDisplay);
+  raw = raw.replace('{{WALLET_TITLE}}', walletTitle);
+  htmlCache = raw;
   return htmlCache;
 }
 

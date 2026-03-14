@@ -64,8 +64,9 @@ const TRANSFERS_SCHEMA = `
 function safeAddColumn(db: Database, table: string, column: string, colType: string): void {
   try {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${colType}`);
-  } catch (_err) {
-    // Column already exists — ignore
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("duplicate column")) return;
+    throw err;
   }
 }
 
@@ -308,6 +309,7 @@ export interface TransferEvent {
  * Distinct from `logTransfer` which writes to expense_events.
  */
 export function logTransferEvent(db: Database, event: TransferEvent): string {
+  if (event.amountUsd <= 0) throw new Error("Transfer amount must be positive");
   const id = event.id || ulid();
   db.prepare(
     `INSERT INTO transfers (id, type, from_account, to_account, amount_usd, metadata)
@@ -347,6 +349,7 @@ export interface DailyProfit {
  * @param date - Date in YYYY-MM-DD format
  */
 export function computeDailyNetProfit(db: Database, date: string): DailyProfit {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Invalid date format");
   // Compute the start of the given date and the start of the next day
   const dayStart = `${date} 00:00:00`;
   const nextDay = new Date(`${date}T00:00:00Z`);

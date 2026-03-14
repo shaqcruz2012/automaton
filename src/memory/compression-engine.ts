@@ -200,7 +200,7 @@ export class CompressionEngine {
     let success = true;
     let forceStage4 = false;
 
-    for (let stage = 1; stage <= plan.maxStage || (forceStage4 && stage <= 4); stage++) {
+    for (let stage = 1; stage <= Math.max(plan.maxStage, forceStage4 ? 4 : 0); stage++) {
       highestStage = Math.max(highestStage, stage);
       try {
         if (stage === 1) {

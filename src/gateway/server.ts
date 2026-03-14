@@ -30,11 +30,23 @@ interface GatewayOptions {
   backendOverrides?: Record<string, string>;
 }
 
+const MAX_BODY_BYTES = 1_048_576; // 1 MB
+
 function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk) => (body += chunk));
+    let bytes = 0;
+    req.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > MAX_BODY_BYTES) {
+        req.destroy();
+        reject(new Error("Request body too large"));
+        return;
+      }
+      body += chunk;
+    });
     req.on("end", () => resolve(body));
+    req.on("error", reject);
   });
 }
 
@@ -118,7 +130,7 @@ export function createGatewayServer(options: GatewayOptions) {
     // ── Paid endpoints ──
     const tierMatch = findTierForRoute(pricing, url);
     if (!tierMatch) {
-      jsonResponse(res, 404, { error: `Unknown endpoint: ${url}` });
+      jsonResponse(res, 404, { error: "Unknown endpoint" });
       return;
     }
 

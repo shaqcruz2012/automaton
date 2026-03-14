@@ -26,6 +26,40 @@ import { createLogger } from "../observability/logger.js";
 
 const logger = createLogger("tools");
 
+/** Validate a user-supplied URL to prevent SSRF attacks. */
+function validateFetchUrl(raw: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid URL: ${raw.slice(0, 100)}`);
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`Blocked URL protocol: ${parsed.protocol}`);
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname === "localhost" || hostname === "[::1]") {
+    throw new Error("Blocked URL: localhost is not allowed");
+  }
+
+  const ipMatch = hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (ipMatch) {
+    const [, a, b] = ipMatch.map(Number);
+    if (
+      a === 127 ||                           // 127.0.0.0/8
+      a === 10 ||                            // 10.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) ||   // 172.16.0.0/12
+      (a === 192 && b === 168) ||            // 192.168.0.0/16
+      (a === 169 && b === 254) ||            // 169.254.0.0/16
+      a === 0                                // 0.0.0.0
+    ) {
+      throw new Error("Blocked URL: private/internal IP address");
+    }
+  }
+}
+
 // ─── Local Tunnel Registry (cloudflared) ──────────────────────
 // Tracks active cloudflared tunnel processes for local expose_port fallback.
 // Free trycloudflare.com quick tunnels have a 1-tunnel-per-IP limit,
@@ -2746,11 +2780,20 @@ Model: ${ctx.inference.getDefaultModel()}
         const { x402Fetch } = await import("../conway/x402.js");
         const { DEFAULT_TREASURY_POLICY } = await import("../types.js");
         const url = args.url as string;
+
+        // SSRF protection: block private/internal addresses
+        validateFetchUrl(url);
+
         const method = (args.method as string) || "GET";
         const body = args.body as string | undefined;
-        const extraHeaders = args.headers
-          ? JSON.parse(args.headers as string)
-          : undefined;
+        let extraHeaders: Record<string, string> | undefined;
+        if (args.headers) {
+          try {
+            extraHeaders = JSON.parse(args.headers as string);
+          } catch {
+            return "x402 fetch failed: invalid headers JSON";
+          }
+        }
 
         const maxPayment =
           ctx.config.treasuryPolicy?.maxX402PaymentCents ??

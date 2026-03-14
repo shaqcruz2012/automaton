@@ -101,11 +101,12 @@ export function loadHeartbeatConfig(configPath?: string): HeartbeatConfig {
 
     return {
       entries,
-      defaultIntervalMs:
-        parsed.defaultIntervalMs ?? DEFAULT_HEARTBEAT_CONFIG.defaultIntervalMs,
-      lowComputeMultiplier:
-        parsed.lowComputeMultiplier ??
-        DEFAULT_HEARTBEAT_CONFIG.lowComputeMultiplier,
+      defaultIntervalMs: Math.max(1_000, Math.min(86_400_000,
+        Number(parsed.defaultIntervalMs) || DEFAULT_HEARTBEAT_CONFIG.defaultIntervalMs,
+      )),
+      lowComputeMultiplier: Math.max(1, Math.min(100,
+        Number(parsed.lowComputeMultiplier) || DEFAULT_HEARTBEAT_CONFIG.lowComputeMultiplier,
+      )),
     };
   } catch (error: any) {
     logger.error("Failed to parse YAML config", error instanceof Error ? error : undefined);

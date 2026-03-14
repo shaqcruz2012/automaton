@@ -274,7 +274,7 @@ async function chatViaOpenAiCompatible(params: {
   });
 
   if (!resp.ok) {
-    const text = await resp.text();
+    const text = await resp.text().catch(() => "(body unreadable)");
     throw new Error(
       `Inference error (${params.backend}): ${resp.status}: ${text}`,
     );
@@ -386,7 +386,7 @@ async function chatViaAnthropic(params: {
   });
 
   if (!resp.ok) {
-    const text = await resp.text();
+    const text = await resp.text().catch(() => "(body unreadable)");
     throw new Error(`Inference error (anthropic): ${resp.status}: ${text}`);
   }
 

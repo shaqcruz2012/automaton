@@ -315,7 +315,8 @@ async function handleSkillRequest(
   const estimatedCostCents = recordExpense(db, {
     tier: tierName,
     model: tierConfig.model,
-    inputTokensEstimate: llmResponse.inputTokens + llmResponse.outputTokens,
+    inputTokens: llmResponse.inputTokens,
+    outputTokens: llmResponse.outputTokens,
     requestId,
     nicheId: request.nicheId,
     experimentId: request.experimentId,
