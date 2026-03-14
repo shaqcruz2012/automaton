@@ -281,6 +281,55 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     }
   },
 
+  // === Revenue Seeker: Wake agent when idle to find revenue opportunities ===
+  seek_revenue: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
+    // Only run every 5 minutes
+    if (!shouldRunAtInterval(taskCtx, "seek_revenue", 5 * 60_000)) {
+      return { shouldWake: false };
+    }
+
+    try {
+      const { getActiveGoals } = await import("../state/database.js");
+      const activeGoals = getActiveGoals(taskCtx.db.raw);
+
+      // If the agent already has active goals, it's busy — don't interrupt
+      if (activeGoals.length > 0) {
+        markTaskRan(taskCtx, "seek_revenue");
+        return { shouldWake: false };
+      }
+
+      // Check when the agent last completed meaningful work
+      const lastActivity = taskCtx.db.getKV("last_revenue_activity") ?? "1970-01-01T00:00:00Z";
+      const idleMs = Date.now() - Date.parse(lastActivity);
+      const IDLE_THRESHOLD_MS = 5 * 60_000; // 5 minutes
+
+      if (idleMs < IDLE_THRESHOLD_MS) {
+        markTaskRan(taskCtx, "seek_revenue");
+        return { shouldWake: false };
+      }
+
+      // Check P&L to determine urgency
+      const { computePnl } = await import("../local/accounting.js");
+      const pnl = computePnl(taskCtx.db.raw, "day");
+
+      markTaskRan(taskCtx, "seek_revenue");
+
+      return {
+        shouldWake: true,
+        message: [
+          "IDLE REVENUE ALERT: No active goals and idle for >5 minutes.",
+          `24h P&L: revenue $${(pnl.totalRevenueCents / 100).toFixed(2)}, expenses $${(pnl.totalExpenseCents / 100).toFixed(2)}, net $${(pnl.netCents / 100).toFixed(2)}.`,
+          "Actions: (1) Check social inbox for user requests. (2) Check if services are healthy and earning.",
+          "(3) If all services up and no inbox messages, use create_goal to plan a new revenue initiative.",
+          "Available tools: summarize_url, reply_social, create_goal, check_credits.",
+        ].join("\n"),
+      };
+    } catch (err) {
+      console.warn("[seek_revenue] Error:", err instanceof Error ? err.message : err);
+      return { shouldWake: false };
+    }
+  },
+
   // === Phase 2.1: Soul Reflection ===
   soul_reflection: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
     try {
