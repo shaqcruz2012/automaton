@@ -301,11 +301,62 @@ export async function editFile(
   }
 
   // 10. Rebuild if source file was edited
-  if (/\.(ts|js|tsx|jsx)$/.test(filePath)) {
+  const isSourceFile = /\.(ts|js|tsx|jsx)$/.test(filePath);
+  if (isSourceFile) {
     try {
       await conway.exec("npm run build", 60_000);
     } catch {
       return { success: true, error: "File edited but rebuild failed. Run 'npm run build' manually." };
+    }
+
+    // 11. Run tests to verify the change didn't break anything
+    try {
+      const testResult = await conway.exec("npm test", 60_000);
+      const testOutput = testResult.stdout || testResult.stderr || "";
+
+      if (testResult.exitCode !== 0) {
+        // exec resolved but tests failed — treat as failure
+        throw new Error(`Test process exited with code ${testResult.exitCode}: ${testOutput}`);
+      }
+
+      logModification(db, "code_edit", `Tests passed after self-mod: ${reason}`, {
+        filePath,
+        diff: testOutput.slice(0, MAX_DIFF_SIZE),
+      });
+    } catch (testErr: unknown) {
+      const testError = testErr instanceof Error ? testErr : new Error(String(testErr));
+      const errorDetail = testError.message || "Unknown test failure";
+
+      logModification(db, "code_edit", `Tests FAILED after self-mod: ${reason}`, {
+        filePath,
+        diff: errorDetail.slice(0, MAX_DIFF_SIZE),
+      });
+
+      // Revert to the pre-modify snapshot by resetting the self-mod commit
+      try {
+        const repoRoot = process.cwd();
+        await conway.exec(
+          `cd ${JSON.stringify(repoRoot)} && git reset --hard HEAD~1`,
+          15_000,
+        );
+        logModification(db, "code_revert", `Reverted self-mod due to test failure: ${reason}`, {
+          filePath,
+          diff: errorDetail.slice(0, MAX_DIFF_SIZE),
+          reversible: false,
+        });
+      } catch (revertErr: unknown) {
+        const revertError = revertErr instanceof Error ? revertErr : new Error(String(revertErr));
+        logModification(db, "code_revert", `Failed to revert self-mod: ${reason}`, {
+          filePath,
+          diff: revertError.message.slice(0, MAX_DIFF_SIZE),
+          reversible: false,
+        });
+      }
+
+      return {
+        success: false,
+        error: `Self-modification rolled back: tests failed after editing ${filePath}. Detail: ${errorDetail}`,
+      };
     }
   }
 

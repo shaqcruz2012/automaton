@@ -660,6 +660,76 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     }
   },
 
+  // ─── Audience Growth: Autonomous social posting from niche research ───
+  // Posts tweet-sized insights derived from high-priority niches in the
+  // knowledge store. Runs only at "normal" tier or above to conserve funds.
+  grow_audience: async (ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
+    // Only run at normal tier or above — don't waste resources when low on funds
+    if (ctx.survivalTier === "dead" || ctx.survivalTier === "critical" || ctx.survivalTier === "low_compute") {
+      return { shouldWake: false };
+    }
+
+    // Throttle: run at most once per 30 minutes
+    if (!shouldRunAtInterval(taskCtx, "grow_audience", 30 * 60_000)) {
+      return { shouldWake: false };
+    }
+
+    if (!taskCtx.social) {
+      logger.info("grow_audience: social credentials not configured, skipping");
+      markTaskRan(taskCtx, "grow_audience");
+      return { shouldWake: false };
+    }
+
+    try {
+      const { getTopNiches } = await import("../knowledge/prioritizeNiches.js");
+      const topNiches = getTopNiches(taskCtx.db.raw, 5);
+
+      if (topNiches.length === 0) {
+        logger.info("grow_audience: no niches in knowledge store, skipping");
+        markTaskRan(taskCtx, "grow_audience");
+        return { shouldWake: false };
+      }
+
+      // Pick the highest-priority niche with a non-zero gap score
+      const niche = topNiches.find((n) => n.gapScore > 0) ?? topNiches[0];
+
+      // Generate a tweet-sized insight from the niche data
+      const content = [
+        `${niche.domain}: ${niche.description}`,
+        niche.gapScore > 0.5
+          ? "Big opportunity gap here — few are building solutions yet."
+          : "Emerging space worth watching.",
+        `Trend: ${(niche.trendScore * 100).toFixed(0)}% | Gap: ${(niche.gapScore * 100).toFixed(0)}%`,
+      ].join("\n\n");
+
+      // Truncate to 280 chars for Twitter compatibility
+      const tweet = content.length > 280 ? content.slice(0, 277) + "..." : content;
+
+      const result = await taskCtx.social.send("timeline", tweet);
+
+      logger.info("grow_audience: posted content", {
+        nicheId: niche.nicheId,
+        domain: niche.domain,
+        postId: result.id,
+      });
+
+      taskCtx.db.setKV("last_grow_audience_post", JSON.stringify({
+        timestamp: new Date().toISOString(),
+        nicheId: niche.nicheId,
+        domain: niche.domain,
+        postId: result.id,
+        contentPreview: tweet.slice(0, 100),
+      }));
+
+      markTaskRan(taskCtx, "grow_audience");
+      return { shouldWake: false };
+    } catch (err) {
+      logger.error("grow_audience failed", err instanceof Error ? err : undefined);
+      markTaskRan(taskCtx, "grow_audience");
+      return { shouldWake: false };
+    }
+  },
+
   // ─── Service Watchdog ───────────────────────────────────────────
   // Checks if revenue services are running and restarts any that are down.
   // Runs in the heartbeat daemon (no inference cost) so the agent doesn't
@@ -745,6 +815,96 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
 
     // Don't wake the agent — the watchdog handles restarts silently
     return { shouldWake: false };
+  },
+
+  // ─── Prospect Outreach ─────────────────────────────────────────
+  // Identifies top-scoring niches and posts a value proposition via social.
+  // Rate limited to 1 outreach per hour. Minimum survival tier: normal.
+  prospect_outreach: async (ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
+    const OUTREACH_INTERVAL_MS = 3_600_000; // 1 hour
+
+    // Rate limit: max 1 per hour
+    if (!shouldRunAtInterval(taskCtx, "prospect_outreach", OUTREACH_INTERVAL_MS)) {
+      return { shouldWake: false };
+    }
+
+    // Gate on survival tier — only run at "normal" or above
+    const tierRank: Record<SurvivalTier, number> = {
+      dead: 0,
+      critical: 1,
+      low_compute: 2,
+      normal: 3,
+      high: 4,
+    };
+    if (tierRank[ctx.survivalTier] < tierRank["normal"]) {
+      return { shouldWake: false };
+    }
+
+    // Need social client to post outreach
+    if (!taskCtx.social) {
+      return { shouldWake: false };
+    }
+
+    try {
+      const { getTopNiches } = await import("../knowledge/prioritizeNiches.js");
+      const topNiches = getTopNiches(ctx.db, 5);
+
+      if (topNiches.length === 0) {
+        markTaskRan(taskCtx, "prospect_outreach");
+        return { shouldWake: false };
+      }
+
+      // Pick the highest-priority niche that hasn't been contacted recently
+      const niche = topNiches[0];
+
+      // Build a simple outreach message
+      const message = [
+        `Looking for ${niche.domain} professionals!`,
+        ``,
+        `Our AI-powered API offers:`,
+        `- Article & document summarization`,
+        `- Deep analysis briefs`,
+        `- Niche-specific research reports`,
+        ``,
+        `Pay only for what you use — x402 pay-per-call pricing (no subscriptions, no API keys).`,
+        ``,
+        `Niche focus: ${niche.description}`,
+        ``,
+        `Try it out — just send a URL or topic and get instant results.`,
+      ].join("\n");
+
+      // Post one outreach message (send to "broadcast" channel)
+      const result = await taskCtx.social.send("broadcast", message);
+
+      // Log the outreach attempt
+      const outreachLog = {
+        timestamp: new Date().toISOString(),
+        nicheId: niche.nicheId,
+        domain: niche.domain,
+        description: niche.description,
+        rlPriority: niche.rlPriority,
+        messageId: result.id,
+        channel: "broadcast",
+        messagePreview: message.slice(0, 200),
+      };
+
+      taskCtx.db.setKV("last_prospect_outreach", JSON.stringify(outreachLog));
+      logger.info("prospect_outreach: posted outreach", outreachLog);
+
+      // Append to outreach history (keep last 50)
+      const historyStr = taskCtx.db.getKV("prospect_outreach_history") || "[]";
+      const parsed = JSON.parse(historyStr);
+      const history: Array<typeof outreachLog> = Array.isArray(parsed) ? parsed : [];
+      history.push(outreachLog);
+      if (history.length > 50) history.splice(0, history.length - 50);
+      taskCtx.db.setKV("prospect_outreach_history", JSON.stringify(history));
+
+      markTaskRan(taskCtx, "prospect_outreach");
+      return { shouldWake: false };
+    } catch (err) {
+      logger.error("prospect_outreach failed", err instanceof Error ? err : undefined);
+      return { shouldWake: false };
+    }
   },
 
   // ─── Creator Tax ────────────────────────────────────────────────
