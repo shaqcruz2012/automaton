@@ -30,7 +30,7 @@ const API_DOCS = {
   info: {
     title: 'Datchi API',
     version: '1.0.0',
-    description: 'AI-powered analysis, pay-per-call with crypto via x402 protocol',
+    description: 'AI-powered analysis, pay-per-call with crypto via x402 protocol. First 3 calls free. No signup required.',
     contact: {
       name: 'Datchi Automaton',
       url: 'https://datchi.example.com',
@@ -47,6 +47,13 @@ const API_DOCS = {
     tokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     recipient: WALLET_ADDRESS ?? 'not-configured',
     facilitator: 'https://x402.org/facilitator',
+  },
+  info_free_tier: {
+    description: 'First 3 calls free per IP per 24 hours. No signup required.',
+    calls_per_day: 3,
+    window_hours: 24,
+    signup_required: false,
+    note: 'After free calls are exhausted, x402 payment is required.',
   },
   paths: {
     '/health': {

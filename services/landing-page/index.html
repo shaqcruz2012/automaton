@@ -696,8 +696,12 @@
       AI-powered analysis, pay-per-call with crypto.
       No subscriptions. No API keys. Just sign a payment and get your result.
     </p>
+    <div style="display:inline-flex;align-items:center;gap:10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:100px;padding:8px 18px;margin-bottom:24px;font-family:var(--mono);font-size:0.85rem;color:var(--green);font-weight:600;">
+      Try Free &mdash; 3 calls, no signup
+    </div>
     <div class="hero-actions">
-      <a href="#sdk" class="btn btn-primary">View SDK</a>
+      <a href="#try-free" class="btn btn-primary">Try Free</a>
+      <a href="#sdk" class="btn btn-outline">View SDK</a>
       <a href="#services" class="btn btn-outline">Browse Endpoints</a>
     </div>
 
@@ -990,6 +994,17 @@
   <div class="container">
     <span class="label">No payment needed</span>
     <h2>Try It Free</h2>
+
+    <div class="callout" style="margin-bottom:28px;border-color:rgba(34,197,94,0.4);background:rgba(34,197,94,0.06);">
+      <span class="callout-icon" style="color:var(--green);">&#9889;</span>
+      <div class="callout-body">
+        <strong style="color:var(--green);">First 3 calls free. No signup required.</strong><br>
+        Every paid endpoint includes 3 free trial calls per IP per 24 hours.
+        No wallet needed, no signup, no headers &mdash; just POST your request and get a result.
+        After your free calls are used, the API returns <code style="font-family:var(--mono);font-size:0.8rem;background:var(--bg-code);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--accent);">402 Payment Required</code> as normal.
+      </div>
+    </div>
+
     <p style="margin-bottom: 28px;">
       The <code style="font-family: var(--mono); font-size: 0.85em; background: var(--bg-code); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px;">/health</code>
       and <code style="font-family: var(--mono); font-size: 0.85em; background: var(--bg-code); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px;">/info</code>

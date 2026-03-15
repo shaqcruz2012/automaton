@@ -15,6 +15,8 @@ export interface SkillRequest {
   experimentId?: string;
   /** x402 payment proof (tx hash or receipt) */
   paymentProof?: string;
+  /** Client IP for free-tier tracking (set by gateway) */
+  clientIp?: string;
 }
 
 export interface SkillResponse {
@@ -25,6 +27,8 @@ export interface SkillResponse {
   requestId: string;
   /** Estimated cost to the automaton for this request */
   estimatedCostCents: number;
+  /** Free-tier status note shown to the caller */
+  note?: string;
 }
 
 export interface TierConfig {

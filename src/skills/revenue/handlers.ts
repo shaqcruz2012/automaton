@@ -16,6 +16,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import { ulid } from "ulid";
 import type { SkillRequest, SkillResponse, PricingConfig } from "./types.js";
 import { verifyPayment, recordRevenue, recordExpense } from "./payment-gate.js";
+import { checkFreeTier, recordFreeTierUsage } from "./free-tier.js";
 
 type Database = BetterSqlite3.Database;
 
@@ -256,16 +257,38 @@ async function handleSkillRequest(
     };
   }
 
-  // Step 3: Verify x402 payment
-  const payment = verifyPayment(request.paymentProof, tierConfig.price_usd);
-  if (!payment.verified) {
-    return {
-      success: false,
-      tier: tierName,
-      error: payment.error,
-      requestId,
-      estimatedCostCents: 0,
-    };
+  // Step 2.5: Check free-tier eligibility before requiring payment
+  let isFreeTierCall = false;
+  let freeTierNote: string | undefined;
+
+  if (request.clientIp) {
+    const freeTier = checkFreeTier(db, request.clientIp);
+    if (freeTier.eligible) {
+      isFreeTierCall = true;
+      const afterThis = freeTier.remaining - 1;
+      freeTierNote =
+        afterThis > 0
+          ? `Free trial: ${afterThis} call${afterThis === 1 ? "" : "s"} remaining`
+          : "Free trial: this is your last free call. Payment required for continued use.";
+    } else {
+      freeTierNote =
+        "Free trial exhausted. Payment required for continued use.";
+    }
+  }
+
+  // Step 3: Verify x402 payment (skip if free-tier eligible)
+  if (!isFreeTierCall) {
+    const payment = verifyPayment(request.paymentProof, tierConfig.price_usd);
+    if (!payment.verified) {
+      return {
+        success: false,
+        tier: tierName,
+        error: payment.error,
+        requestId,
+        estimatedCostCents: 0,
+        note: freeTierNote,
+      };
+    }
   }
 
   // Step 4: Estimate input tokens (rough: content.length / 4)
@@ -300,16 +323,20 @@ async function handleSkillRequest(
     };
   }
 
-  // Step 6: Log revenue (only after successful inference)
-  const amountCents = Math.round(tierConfig.price_usd * 100);
-  recordRevenue(db, {
-    tier: tierName,
-    amountCents,
-    requestId,
-    nicheId: request.nicheId,
-    experimentId: request.experimentId,
-    paymentProof: request.paymentProof,
-  });
+  // Step 6: Log revenue (only after successful inference; skip for free-tier)
+  if (isFreeTierCall && request.clientIp) {
+    recordFreeTierUsage(db, request.clientIp, tierName);
+  } else {
+    const amountCents = Math.round(tierConfig.price_usd * 100);
+    recordRevenue(db, {
+      tier: tierName,
+      amountCents,
+      requestId,
+      nicheId: request.nicheId,
+      experimentId: request.experimentId,
+      paymentProof: request.paymentProof,
+    });
+  }
 
   // Step 7: Log expense with actual token counts
   const estimatedCostCents = recordExpense(db, {
@@ -328,6 +355,7 @@ async function handleSkillRequest(
     result: llmResponse.content,
     requestId,
     estimatedCostCents,
+    note: freeTierNote,
   };
 }
 

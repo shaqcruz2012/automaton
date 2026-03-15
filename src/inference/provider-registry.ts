@@ -255,7 +255,7 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     maxRequestsPerMinute: 2,
     maxTokensPerMinute: 500000,
     priority: 5,
-    enabled: false,
+    enabled: true,
   },
   {
     id: "local",

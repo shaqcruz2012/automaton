@@ -17,6 +17,7 @@ import type {
   CreatorTaxConfig,
 } from "../types.js";
 import type { HealthMonitor as ColonyHealthMonitor } from "../orchestration/health-monitor.js";
+import type { BenchmarkSnapshot } from "../benchmarks/collector.js";
 import { sanitizeInput } from "../agent/injection-defense.js";
 import { getSurvivalTier } from "../conway/credits.js";
 import { createLogger } from "../observability/logger.js";
@@ -281,51 +282,236 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     }
   },
 
-  // === Revenue Seeker: Wake agent when idle to find revenue opportunities ===
+  // === Revenue Seeker: PRIMARY operating loop — "can I make money RIGHT NOW?" ===
+  // Runs every cycle. Checks inbound leads, service health, and advertises when idle.
+  // Survival tier: critical — revenue-seeking IS survival.
   seek_revenue: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
-    // Only run every 5 minutes
-    if (!shouldRunAtInterval(taskCtx, "seek_revenue", 5 * 60_000)) {
-      return { shouldWake: false };
-    }
+    const AD_COOLDOWN_MS = 30 * 60_000; // 30 minutes between ad posts
 
     try {
-      const { getActiveGoals } = await import("../state/database.js");
-      const activeGoals = getActiveGoals(taskCtx.db.raw);
+      // ─── STEP 1: CHECK INBOUND — unread social messages are potential customers ───
+      if (taskCtx.social) {
+        try {
+          const unread = await taskCtx.social.unreadCount();
+          if (unread > 0) {
+            logger.info(`seek_revenue: ${unread} unread inbound message(s) — potential leads`, { unread });
+            return {
+              shouldWake: true,
+              message: [
+                `INBOUND LEAD: ${unread} unread message(s) waiting.`,
+                "Someone may be a paying customer. Check inbox immediately.",
+                "Use poll_social to read, then reply_social to respond with service offerings.",
+              ].join("\n"),
+            };
+          }
+        } catch (err: unknown) {
+          // Social poll failed — log but continue to service checks
+          logger.warn("seek_revenue: social unreadCount failed", {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
 
-      // If the agent already has active goals, it's busy — don't interrupt
-      if (activeGoals.length > 0) {
-        markTaskRan(taskCtx, "seek_revenue");
+      // ─── STEP 2: CHECK SERVICES — revenue needs live endpoints ───
+      const http = await import("http");
+
+      // Core revenue-generating services (subset of service_watchdog list)
+      const revenueServices = [
+        { name: "Text Analysis API", port: 9000, health: "/health" },
+        { name: "Data Processing API", port: 9001, health: "/health" },
+        { name: "TrustCheck API", port: 9002, health: "/health" },
+        { name: "URL Summarizer Pro", port: 9003, health: "/health" },
+        { name: "Payment Validator", port: 6000, health: "/status" },
+      ];
+
+      function checkHealth(port: number, healthPath: string): Promise<boolean> {
+        return new Promise((resolve) => {
+          const req = http.get(`http://localhost:${port}${healthPath}`, (res: any) => {
+            res.resume();
+            resolve(true);
+          });
+          req.on("error", () => resolve(false));
+          req.setTimeout(3000, () => { req.destroy(); resolve(false); });
+        });
+      }
+
+      const healthResults = await Promise.all(
+        revenueServices.map(async (svc) => ({
+          ...svc,
+          alive: await checkHealth(svc.port, svc.health),
+        })),
+      );
+
+      const deadServices = healthResults.filter((s) => !s.alive);
+      const aliveCount = healthResults.length - deadServices.length;
+
+      if (deadServices.length > 0) {
+        // Revenue services are down — restart them inline (service_watchdog logic)
+        logger.warn(`seek_revenue: ${deadServices.length} revenue service(s) down — triggering restarts`, {
+          dead: deadServices.map((s) => s.name),
+        });
+
+        const path = await import("path");
+        const fs = await import("fs");
+        const { spawn } = await import("child_process");
+        const { getAutomatonDir } = await import("../identity/wallet.js");
+        const { fileURLToPath } = await import("url");
+
+        const automatonDir = getAutomatonDir();
+        const projectDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+
+        // Map service names to their startup files (mirrors service_watchdog)
+        const serviceFiles: Record<string, string> = {
+          "Text Analysis API": "services/text-analysis.js",
+          "Data Processing API": "services/data-processing.js",
+          "TrustCheck API": "trustcheck-complete.js",
+          "URL Summarizer Pro": "services/url-summarizer.js",
+          "Payment Validator": "payment-validator.js",
+        };
+
+        let restarted = 0;
+        for (const svc of deadServices) {
+          const file = serviceFiles[svc.name];
+          if (!file) continue;
+
+          const candidates = [
+            path.join(automatonDir, file),
+            path.join(projectDir, file),
+          ];
+          const fullPath = candidates.find((p) => fs.existsSync(p));
+          if (fullPath) {
+            try {
+              const child = spawn(process.execPath, [fullPath], {
+                cwd: path.dirname(fullPath),
+                stdio: "ignore",
+                detached: true,
+              });
+              child.unref();
+              restarted++;
+              logger.info(`seek_revenue: restarted ${svc.name} (PID ${child.pid}) on port ${svc.port}`);
+            } catch (err: unknown) {
+              logger.error(`seek_revenue: failed to restart ${svc.name}`, err instanceof Error ? err : undefined);
+            }
+          }
+        }
+
+        taskCtx.db.setKV("seek_revenue_last_restart", JSON.stringify({
+          timestamp: new Date().toISOString(),
+          deadServices: deadServices.map((s) => s.name),
+          restarted,
+        }));
+
+        // If ALL revenue services were down, wake agent to investigate
+        if (aliveCount === 0) {
+          return {
+            shouldWake: true,
+            message: [
+              "REVENUE EMERGENCY: All x402 API services are down. Restart attempted.",
+              `Restarted ${restarted}/${deadServices.length} services.`,
+              "Verify services are responding, check logs, and ensure payment validator is live.",
+            ].join("\n"),
+          };
+        }
+      }
+
+      // ─── STEP 3: ADVERTISE — if no inbound and services are up, sell ───
+      if (!taskCtx.social) {
+        logger.debug("seek_revenue: no social client configured, skipping ad post");
         return { shouldWake: false };
       }
 
-      // Check when the agent last completed meaningful work
-      const lastActivity = taskCtx.db.getKV("last_revenue_activity") ?? "1970-01-01T00:00:00Z";
-      const idleMs = Date.now() - Date.parse(lastActivity);
-      const IDLE_THRESHOLD_MS = 5 * 60_000; // 5 minutes
+      // Check ad cooldown
+      const lastAdStr = taskCtx.db.getKV("last_ad_post");
+      if (lastAdStr) {
+        const lastAdMs = Date.parse(lastAdStr);
+        if (!Number.isNaN(lastAdMs) && Date.now() - lastAdMs < AD_COOLDOWN_MS) {
+          const remainingMs = AD_COOLDOWN_MS - (Date.now() - lastAdMs);
+          logger.debug(`seek_revenue: ad cooldown active, ${Math.round(remainingMs / 60_000)}min remaining`);
+          return { shouldWake: false };
+        }
+      }
 
-      if (idleMs < IDLE_THRESHOLD_MS) {
-        markTaskRan(taskCtx, "seek_revenue");
+      // Query top niche from knowledge store for targeted advertising
+      let nicheDomain = "web content";
+      let nicheDescription = "articles, documents, and web pages";
+      try {
+        const { getTopNiches } = await import("../knowledge/prioritizeNiches.js");
+        const topNiches = getTopNiches(taskCtx.db.raw, 1);
+        if (topNiches.length > 0) {
+          nicheDomain = topNiches[0].domain;
+          nicheDescription = topNiches[0].description;
+        }
+      } catch {
+        // Knowledge store may not be populated yet — use defaults
+      }
+
+      // Resolve the public URL from KV (set by expose_port tool), env, or tunnel-url.txt
+      let publicUrl =
+        taskCtx.db.getKV("tunnel_url")
+        || taskCtx.db.getKV("public_url")
+        || process.env.PUBLIC_URL
+        || process.env.TUNNEL_URL
+        || "";
+
+      // Fall back to reading the tunnel URL file written by start-tunnel.sh
+      if (!publicUrl) {
+        try {
+          const fs = await import("fs");
+          const tunnelUrlFile = process.env.TUNNEL_URL_FILE
+            || (process.env.USERPROFILE || process.env.HOME || "") + "/.automaton/tunnel-url.txt";
+          const fileUrl = fs.readFileSync(tunnelUrlFile, "utf8").trim();
+          if (fileUrl.startsWith("https://")) {
+            publicUrl = fileUrl;
+            // Cache in KV so we don't read the file every cycle
+            taskCtx.db.setKV("tunnel_url", fileUrl);
+          }
+        } catch { /* tunnel-url.txt missing or unreadable */ }
+      }
+
+      if (!publicUrl) {
+        logger.warn("seek_revenue: no public URL available — skipping ad post. Start the tunnel with: bash ~/.automaton/scripts/start-tunnel.sh");
         return { shouldWake: false };
       }
 
-      // Check P&L to determine urgency
-      const { computePnl } = await import("../local/accounting.js");
-      const pnl = computePnl(taskCtx.db.raw, "day");
+      // Build a DIRECT sales post — not thought leadership, not growth content
+      const adContent = [
+        `I analyze ${nicheDomain} in seconds.`,
+        `$0.25/call, pay only for what you use.`,
+        ``,
+        `Try it: ${publicUrl}/api/summarize`,
+        ``,
+        `No signup. No subscription. Just results.`,
+        ``,
+        `${nicheDescription}`,
+      ].join("\n");
 
-      markTaskRan(taskCtx, "seek_revenue");
+      // Truncate for Twitter compatibility
+      const ad = adContent.length > 280 ? adContent.slice(0, 277) + "..." : adContent;
 
-      return {
-        shouldWake: true,
-        message: [
-          "IDLE REVENUE ALERT: No active goals and idle for >5 minutes.",
-          `24h P&L: revenue $${(pnl.totalRevenueCents / 100).toFixed(2)}, expenses $${(pnl.totalExpenseCents / 100).toFixed(2)}, net $${(pnl.netCents / 100).toFixed(2)}.`,
-          "Actions: (1) Check social inbox for user requests. (2) Check if services are healthy and earning.",
-          "(3) If all services up and no inbox messages, use create_goal to plan a new revenue initiative.",
-          "Available tools: summarize_url, reply_social, create_goal, check_credits.",
-        ].join("\n"),
-      };
-    } catch (err) {
-      console.warn("[seek_revenue] Error:", err instanceof Error ? err.message : err);
+      try {
+        const result = await taskCtx.social.send("timeline", ad);
+
+        taskCtx.db.setKV("last_ad_post", new Date().toISOString());
+        taskCtx.db.setKV("last_ad_post_detail", JSON.stringify({
+          timestamp: new Date().toISOString(),
+          postId: result.id,
+          nicheDomain,
+          publicUrl,
+          contentPreview: ad.slice(0, 100),
+        }));
+
+        logger.info("seek_revenue: posted sales ad", {
+          postId: result.id,
+          nicheDomain,
+        });
+      } catch (err: unknown) {
+        logger.error("seek_revenue: failed to post ad", err instanceof Error ? err : undefined);
+      }
+
+      // ─── STEP 4: No inbound messages — don't wake agent ───
+      return { shouldWake: false };
+    } catch (err: unknown) {
+      logger.error("seek_revenue: unexpected error", err instanceof Error ? err : undefined);
       return { shouldWake: false };
     }
   },
@@ -903,6 +1089,62 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       return { shouldWake: false };
     } catch (err) {
       logger.error("prospect_outreach failed", err instanceof Error ? err : undefined);
+      return { shouldWake: false };
+    }
+  },
+
+  // ─── Benchmark Report ─────────────────────────────────────────
+  // Collects performance benchmarks and generates a persistent Markdown report.
+  // Runs every 10 minutes. Minimum survival tier: critical (just DB reads).
+  benchmark_report: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      const { getAutomatonDir } = await import("../identity/wallet.js");
+      const { collectBenchmarks, generateBenchmarkMarkdown, persistBenchmarks } =
+        await import("../benchmarks/collector.js");
+
+      const automatonDir = getAutomatonDir();
+      const markdownPath = path.join(automatonDir, "BENCHMARKS.md");
+      const historyPath = path.join(automatonDir, "benchmark-history.json");
+
+      // Collect current snapshot
+      const snapshot = collectBenchmarks(taskCtx.db.raw);
+
+      // Read history (create if not exists)
+      let history: BenchmarkSnapshot[] = [];
+      try {
+        if (fs.existsSync(historyPath)) {
+          const raw = fs.readFileSync(historyPath, "utf-8");
+          const parsed: unknown = JSON.parse(raw);
+          history = Array.isArray(parsed) ? (parsed as BenchmarkSnapshot[]) : [];
+        }
+      } catch {
+        // Corrupt or missing file — start fresh
+        history = [];
+      }
+
+      // Generate markdown report
+      const _markdown = generateBenchmarkMarkdown(snapshot, history);
+
+      // Persist snapshot, markdown, and history
+      persistBenchmarks(snapshot, markdownPath, historyPath);
+
+      logger.info("benchmark_report: generated", {
+        markdownPath,
+        historyEntries: history.length + 1,
+        snapshotKeys: Object.keys(snapshot).length,
+      });
+
+      taskCtx.db.setKV("last_benchmark_report", JSON.stringify({
+        timestamp: new Date().toISOString(),
+        markdownPath,
+        historyEntries: history.length + 1,
+      }));
+
+      return { shouldWake: false };
+    } catch (err) {
+      logger.error("benchmark_report failed", err instanceof Error ? err : undefined);
       return { shouldWake: false };
     }
   },
