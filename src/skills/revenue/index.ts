@@ -93,13 +93,15 @@ export function loadPricingConfig(): PricingConfig {
 /**
  * Registry of all revenue skill handlers.
  */
-export const REVENUE_SKILLS = {
+type SkillHandler = (db: Database, request: SkillRequest, pricing: PricingConfig) => Promise<SkillResponse>;
+
+export const REVENUE_SKILLS: Record<string, SkillHandler> = {
   "summarize-basic": handleSummarizeBasic,
   "brief-standard": handleBriefStandard,
   "brief-premium": handleBriefPremium,
-} as const;
+};
 
-export type RevenueSkillName = keyof typeof REVENUE_SKILLS;
+export type RevenueSkillName = "summarize-basic" | "brief-standard" | "brief-premium";
 
 /**
  * Dispatch a revenue skill request to the appropriate handler.
@@ -124,6 +126,6 @@ export async function dispatchRevenueSkill(
     };
   }
 
-  const handler = REVENUE_SKILLS[skillName as RevenueSkillName];
+  const handler = REVENUE_SKILLS[skillName];
   return handler(db, request, pricing);
 }

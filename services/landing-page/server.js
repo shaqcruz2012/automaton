@@ -346,6 +346,32 @@ async function getHtml() {
 
 // ── Request handlers ─────────────────────────────────────────────
 
+// Security headers applied to every response.
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  // X-XSS-Protection is disabled intentionally: modern browsers rely on CSP
+  // instead, and a value of "1" can introduce vulnerabilities in older IE.
+  'X-XSS-Protection': '0',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+};
+
+// CSP applied only to HTML responses. Allows inline styles/scripts used by
+// the landing page while blocking all third-party script execution.
+const HTML_CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",   // inline <script> block in the page
+  "style-src 'self' 'unsafe-inline'",    // inline <style> block in the page
+  "font-src 'self'",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join('; ');
+
 function sendJson(res, statusCode, data) {
   const body = JSON.stringify(data, null, 2);
   res.writeHead(statusCode, {
@@ -353,7 +379,7 @@ function sendJson(res, statusCode, data) {
     'Content-Length': Buffer.byteLength(body),
     'Access-Control-Allow-Origin': '*',
     'Cache-Control': 'no-cache',
-    'X-Content-Type-Options': 'nosniff',
+    ...SECURITY_HEADERS,
   });
   res.end(body);
 }
@@ -363,9 +389,8 @@ function sendHtml(res, statusCode, html) {
     'Content-Type': 'text/html; charset=utf-8',
     'Content-Length': Buffer.byteLength(html),
     'Cache-Control': 'public, max-age=300',
-    'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Content-Security-Policy': HTML_CSP,
+    ...SECURITY_HEADERS,
   });
   res.end(html);
 }

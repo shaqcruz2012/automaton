@@ -314,7 +314,6 @@ export function createTwitterClient(
   ): Promise<{ id: string }> => {
     if (content.length > MAX_TWEET_LENGTH) {
       logger.warn("Tweet exceeds 280 character limit", { length: content.length });
-      return { id: "" };
     }
 
     const { blocked, updatedState } = checkRateLimit(state.writeRateLimit);
@@ -388,7 +387,14 @@ export function createTwitterClient(
       return { messages: [] };
     }
 
-    const userId = await ensureUserId();
+    let userId: string | null;
+    try {
+      userId = await ensureUserId();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error("Failed to resolve user ID during poll", undefined, { error: message });
+      return { messages: [] };
+    }
     if (!userId) {
       logger.error("Cannot poll: user ID not resolved", undefined, {
         username: config.username,

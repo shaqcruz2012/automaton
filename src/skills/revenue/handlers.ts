@@ -333,17 +333,21 @@ async function handleSkillRequest(
 
 // ─── Exported Handlers ────────────────────────────────────────────────────────
 
-/** /summarize-basic -- High-volume, low-ticket summarization */
-export function handleSummarizeBasic(db: Database, request: SkillRequest, pricing: PricingConfig): Promise<SkillResponse> {
-  return handleSkillRequest(db, request, pricing, "summarize-basic");
+/**
+ * Factory that binds a tier name to the shared handler, producing a typed
+ * exported function with the same signature each public handler requires.
+ */
+function makeTierHandler(
+  tierName: string,
+): (db: Database, request: SkillRequest, pricing: PricingConfig) => Promise<SkillResponse> {
+  return (db, request, pricing) => handleSkillRequest(db, request, pricing, tierName);
 }
+
+/** /summarize-basic -- High-volume, low-ticket summarization */
+export const handleSummarizeBasic = makeTierHandler("summarize-basic");
 
 /** /brief-standard -- Mid-ticket structured brief */
-export function handleBriefStandard(db: Database, request: SkillRequest, pricing: PricingConfig): Promise<SkillResponse> {
-  return handleSkillRequest(db, request, pricing, "brief-standard");
-}
+export const handleBriefStandard = makeTierHandler("brief-standard");
 
 /** /brief-premium -- Low-volume, high-ticket deep dive */
-export function handleBriefPremium(db: Database, request: SkillRequest, pricing: PricingConfig): Promise<SkillResponse> {
-  return handleSkillRequest(db, request, pricing, "brief-premium");
-}
+export const handleBriefPremium = makeTierHandler("brief-premium");
