@@ -17,6 +17,9 @@ import { ulid } from "ulid";
 import type { SkillRequest, SkillResponse, PricingConfig } from "./types.js";
 import { verifyPayment, recordRevenue, recordExpense } from "./payment-gate.js";
 import { checkFreeTier, recordFreeTierUsage } from "./free-tier.js";
+import { createLogger } from "../../observability/logger.js";
+
+const logger = createLogger("skills.revenue.handlers");
 
 type Database = BetterSqlite3.Database;
 
@@ -314,10 +317,15 @@ async function handleSkillRequest(
       skillTier.maxOutputTokens,
     );
   } catch (err) {
+    logger.error(
+      "Inference failed",
+      err instanceof Error ? err : undefined,
+      { requestId, tier: tierName },
+    );
     return {
       success: false,
       tier: tierName,
-      error: `Inference failed: ${err instanceof Error ? err.message : String(err)}`,
+      error: "Service temporarily unavailable. Please try again.",
       requestId,
       estimatedCostCents: 0,
     };

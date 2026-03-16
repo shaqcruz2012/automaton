@@ -48,7 +48,13 @@ const MODEL_COSTS: Record<string, { input1k: number; output1k: number }> = {
 
 // ─── Types ──────────────────────────────────────────────────────
 
-interface BenchmarkSnapshot {
+/**
+ * Input shape for fine-tuning analysis. This is intentionally different from
+ * the collector's BenchmarkSnapshot (src/benchmarks/collector.ts) which captures
+ * raw DB metrics. FineTuneInput represents a higher-level, pre-aggregated view
+ * with optional fields suited to recommendation generation.
+ */
+interface FineTuneInput {
   /** Timestamp of the snapshot */
   readonly timestamp?: string;
 
@@ -146,7 +152,7 @@ interface BenchmarkSnapshot {
  * Analyze a benchmark snapshot and return actionable fine-tuning
  * recommendations sorted by expected impact (highest first).
  */
-export function generateFineTuningRecommendations(snapshot: BenchmarkSnapshot): string[] {
+export function generateFineTuningRecommendations(snapshot: FineTuneInput): string[] {
   const recommendations: Array<{ priority: number; text: string }> = [];
 
   // ═══ A. INFERENCE COST REDUCTION ═══
@@ -178,7 +184,7 @@ export function generateFineTuningRecommendations(snapshot: BenchmarkSnapshot): 
 // ─── Category Analyzers ─────────────────────────────────────────
 
 function analyzeInferenceCosts(
-  snapshot: BenchmarkSnapshot,
+  snapshot: FineTuneInput,
   out: Array<{ priority: number; text: string }>,
 ): void {
   const inf = snapshot.inference;
@@ -249,9 +255,9 @@ function analyzeInferenceCosts(
 
   // Budget guardrails not set
   if (inf.totalCostCents && inf.totalCostCents > 100) {
-    const config = snapshot as any;
-    const hourlyBudget = config?.modelStrategy?.hourlyBudgetCents ?? 0;
-    const perCallCeiling = config?.modelStrategy?.perCallCeilingCents ?? 0;
+    const modelStrategy = snapshot["modelStrategy"] as Record<string, unknown> | undefined;
+    const hourlyBudget = (modelStrategy?.hourlyBudgetCents as number) ?? 0;
+    const perCallCeiling = (modelStrategy?.perCallCeilingCents as number) ?? 0;
     if (hourlyBudget === 0 && perCallCeiling === 0) {
       out.push({
         priority: 65,
@@ -262,7 +268,7 @@ function analyzeInferenceCosts(
 }
 
 function analyzeSpeedLatency(
-  snapshot: BenchmarkSnapshot,
+  snapshot: FineTuneInput,
   out: Array<{ priority: number; text: string }>,
 ): void {
   const inf = snapshot.inference;
@@ -326,7 +332,7 @@ function analyzeSpeedLatency(
 }
 
 function analyzeTokenEfficiency(
-  snapshot: BenchmarkSnapshot,
+  snapshot: FineTuneInput,
   out: Array<{ priority: number; text: string }>,
 ): void {
   const sp = snapshot.systemPrompt;
@@ -368,7 +374,7 @@ function analyzeTokenEfficiency(
 }
 
 function analyzeRevenue(
-  snapshot: BenchmarkSnapshot,
+  snapshot: FineTuneInput,
   out: Array<{ priority: number; text: string }>,
 ): void {
   const rev = snapshot.revenue;
@@ -445,7 +451,7 @@ function analyzeRevenue(
 }
 
 function analyzeSelfImprovement(
-  snapshot: BenchmarkSnapshot,
+  snapshot: FineTuneInput,
   out: Array<{ priority: number; text: string }>,
 ): void {
   const sm = snapshot.selfMod;

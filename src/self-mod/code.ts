@@ -266,7 +266,9 @@ export async function editFile(
   }
 
   // 6. Pre-modification git snapshot (in repo root, not ~/.automaton/)
+  let preModifySha: string | null = null;
   try {
+    preModifySha = (await conway.exec("git rev-parse HEAD", 5_000)).stdout.trim();
     const { gitCommit } = await import("../git/tools.js");
     await gitCommit(conway, process.cwd(), `pre-modify: ${reason}`);
   } catch {
@@ -276,10 +278,11 @@ export async function editFile(
   // 7. Write new content
   try {
     await conway.writeFile(filePath, newContent);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const writeError = err instanceof Error ? err : new Error(String(err));
     return {
       success: false,
-      error: `Failed to write file: ${err.message}`,
+      error: `Failed to write file: ${writeError.message}`,
     };
   }
 
@@ -334,11 +337,10 @@ export async function editFile(
 
       // Revert to the pre-modify snapshot by resetting the self-mod commit
       try {
-        const repoRoot = process.cwd();
-        await conway.exec(
-          `cd ${JSON.stringify(repoRoot)} && git reset --hard HEAD~1`,
-          15_000,
-        );
+        if (!preModifySha) {
+          throw new Error("No pre-modify SHA captured; cannot safely revert");
+        }
+        await conway.exec(`git reset --hard ${preModifySha}`, 15_000);
         logModification(db, "code_revert", `Reverted self-mod due to test failure: ${reason}`, {
           filePath,
           diff: errorDetail.slice(0, MAX_DIFF_SIZE),

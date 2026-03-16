@@ -211,6 +211,20 @@ export function createGatewayServer(options: GatewayOptions) {
     // Read request body
     const body = await readBody(req);
 
+    // Inject clientIp into the JSON body so revenue handlers can do
+    // free-tier tracking.  Use req.socket.remoteAddress ONLY — never
+    // trust X-Forwarded-For or any other client-supplied header.
+    let enrichedBody = body;
+    try {
+      const parsed = JSON.parse(body);
+      const clientIp = req.socket.remoteAddress;
+      if (clientIp) {
+        enrichedBody = JSON.stringify({ ...parsed, clientIp });
+      }
+    } catch {
+      // Body isn't valid JSON — forward as-is
+    }
+
     // Proxy to backend (use backendPath if specified, otherwise route)
     const backendUrl = resolveBackend(tier.backend);
     const backendPath = tier.backendPath ?? tier.route;
@@ -218,7 +232,7 @@ export function createGatewayServer(options: GatewayOptions) {
       backend: backendUrl,
       path: backendPath,
       method: "POST",
-      body,
+      body: enrichedBody,
       headers: {
         "content-type": req.headers["content-type"] ?? "application/json",
       },

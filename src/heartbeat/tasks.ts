@@ -28,6 +28,11 @@ import { ulid } from "ulid";
 
 const logger = createLogger("heartbeat.tasks");
 
+/** Strip control chars and angle brackets from niche data before embedding in social posts. */
+function sanitizeForSocialPost(s: string, maxLen = 100): string {
+  return s.replace(/[\r\n\t]/g, " ").replace(/[<>{}]/g, "").slice(0, maxLen).trim();
+}
+
 // Module-level AlertEngine so cooldown state persists across ticks.
 // Creating a new instance per tick would reset the lastFired map,
 // causing every alert to fire on every tick regardless of cooldownMs.
@@ -286,6 +291,11 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
   // Runs every cycle. Checks inbound leads, service health, and advertises when idle.
   // Survival tier: critical — revenue-seeking IS survival.
   seek_revenue: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
+    // Interval guard: run at most once per minute
+    if (!shouldRunAtInterval(taskCtx, "seek_revenue", 60_000)) {
+      return { shouldWake: false };
+    }
+
     const AD_COOLDOWN_MS = 30 * 60_000; // 30 minutes between ad posts
 
     try {
@@ -328,7 +338,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         return new Promise((resolve) => {
           const req = http.get(`http://localhost:${port}${healthPath}`, (res: any) => {
             res.resume();
-            resolve(true);
+            resolve(res.statusCode >= 200 && res.statusCode < 500);
           });
           req.on("error", () => resolve(false));
           req.setTimeout(3000, () => { req.destroy(); resolve(false); });
@@ -438,8 +448,8 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         const { getTopNiches } = await import("../knowledge/prioritizeNiches.js");
         const topNiches = getTopNiches(taskCtx.db.raw, 1);
         if (topNiches.length > 0) {
-          nicheDomain = topNiches[0].domain;
-          nicheDescription = topNiches[0].description;
+          nicheDomain = sanitizeForSocialPost(topNiches[0].domain);
+          nicheDescription = sanitizeForSocialPost(topNiches[0].description);
         }
       } catch {
         // Knowledge store may not be populated yet — use defaults
@@ -470,6 +480,13 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
 
       if (!publicUrl) {
         logger.warn("seek_revenue: no public URL available — skipping ad post. Start the tunnel with: bash ~/.automaton/scripts/start-tunnel.sh");
+        return { shouldWake: false };
+      }
+
+      // Validate URL format before embedding in social post
+      const isValidUrl = /^https?:\/\/[a-zA-Z0-9.-]+(:\d+)?(\/[^\s]*)?$/.test(publicUrl);
+      if (!isValidUrl) {
+        logger.warn("seek_revenue: publicUrl failed validation, skipping ad post", { publicUrl });
         return { shouldWake: false };
       }
 
@@ -880,8 +897,10 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       const niche = topNiches.find((n) => n.gapScore > 0) ?? topNiches[0];
 
       // Generate a tweet-sized insight from the niche data
+      const safeDomain = sanitizeForSocialPost(niche.domain);
+      const safeDescription = sanitizeForSocialPost(niche.description);
       const content = [
-        `${niche.domain}: ${niche.description}`,
+        `${safeDomain}: ${safeDescription}`,
         niche.gapScore > 0.5
           ? "Big opportunity gap here — few are building solutions yet."
           : "Emerging space worth watching.",
@@ -942,9 +961,8 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     function checkHealth(port: number, healthPath: string): Promise<boolean> {
       return new Promise((resolve) => {
         const req = http.get(`http://localhost:${port}${healthPath}`, (res: any) => {
-          // Any response (even 402/404) means the server is alive
           res.resume();
-          resolve(true);
+          resolve(res.statusCode >= 200 && res.statusCode < 500);
         });
         req.on("error", () => resolve(false));
         req.setTimeout(3000, () => { req.destroy(); resolve(false); });
@@ -1033,7 +1051,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
 
     try {
       const { getTopNiches } = await import("../knowledge/prioritizeNiches.js");
-      const topNiches = getTopNiches(ctx.db, 5);
+      const topNiches = getTopNiches(taskCtx.db.raw, 5);
 
       if (topNiches.length === 0) {
         markTaskRan(taskCtx, "prospect_outreach");
@@ -1044,8 +1062,10 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       const niche = topNiches[0];
 
       // Build a simple outreach message
+      const safeDomain = sanitizeForSocialPost(niche.domain);
+      const safeDescription = sanitizeForSocialPost(niche.description);
       const message = [
-        `Looking for ${niche.domain} professionals!`,
+        `Looking for ${safeDomain} professionals!`,
         ``,
         `Our AI-powered API offers:`,
         `- Article & document summarization`,
@@ -1054,7 +1074,7 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
         ``,
         `Pay only for what you use — x402 pay-per-call pricing (no subscriptions, no API keys).`,
         ``,
-        `Niche focus: ${niche.description}`,
+        `Niche focus: ${safeDescription}`,
         ``,
         `Try it out — just send a URL or topic and get instant results.`,
       ].join("\n");
@@ -1081,9 +1101,8 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       const historyStr = taskCtx.db.getKV("prospect_outreach_history") || "[]";
       const parsed = JSON.parse(historyStr);
       const history: Array<typeof outreachLog> = Array.isArray(parsed) ? parsed : [];
-      history.push(outreachLog);
-      if (history.length > 50) history.splice(0, history.length - 50);
-      taskCtx.db.setKV("prospect_outreach_history", JSON.stringify(history));
+      const updatedHistory = [...history, outreachLog].slice(-50);
+      taskCtx.db.setKV("prospect_outreach_history", JSON.stringify(updatedHistory));
 
       markTaskRan(taskCtx, "prospect_outreach");
       return { shouldWake: false };
@@ -1097,11 +1116,15 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
   // Collects performance benchmarks and generates a persistent Markdown report.
   // Runs every 10 minutes. Minimum survival tier: critical (just DB reads).
   benchmark_report: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
+    if (!shouldRunAtInterval(taskCtx, "benchmark_report", 10 * 60_000)) {
+      return { shouldWake: false };
+    }
+
     try {
       const fs = await import("fs");
       const path = await import("path");
       const { getAutomatonDir } = await import("../identity/wallet.js");
-      const { collectBenchmarks, generateBenchmarkMarkdown, persistBenchmarks } =
+      const { collectBenchmarks, persistBenchmarks } =
         await import("../benchmarks/collector.js");
 
       const automatonDir = getAutomatonDir();
@@ -1111,35 +1134,17 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       // Collect current snapshot
       const snapshot = collectBenchmarks(taskCtx.db.raw);
 
-      // Read history (create if not exists)
-      let history: BenchmarkSnapshot[] = [];
-      try {
-        if (fs.existsSync(historyPath)) {
-          const raw = fs.readFileSync(historyPath, "utf-8");
-          const parsed: unknown = JSON.parse(raw);
-          history = Array.isArray(parsed) ? (parsed as BenchmarkSnapshot[]) : [];
-        }
-      } catch {
-        // Corrupt or missing file — start fresh
-        history = [];
-      }
-
-      // Generate markdown report
-      const _markdown = generateBenchmarkMarkdown(snapshot, history);
-
-      // Persist snapshot, markdown, and history
+      // Persist snapshot, markdown, and history (handles everything internally)
       persistBenchmarks(snapshot, markdownPath, historyPath);
 
       logger.info("benchmark_report: generated", {
         markdownPath,
-        historyEntries: history.length + 1,
         snapshotKeys: Object.keys(snapshot).length,
       });
 
       taskCtx.db.setKV("last_benchmark_report", JSON.stringify({
         timestamp: new Date().toISOString(),
         markdownPath,
-        historyEntries: history.length + 1,
       }));
 
       return { shouldWake: false };

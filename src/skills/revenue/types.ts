@@ -15,7 +15,10 @@ export interface SkillRequest {
   experimentId?: string;
   /** x402 payment proof (tx hash or receipt) */
   paymentProof?: string;
-  /** Client IP for free-tier tracking (set by gateway) */
+  /**
+   * Client IP for free-tier tracking (set by gateway).
+   * Must be set from req.socket.remoteAddress — never from X-Forwarded-For.
+   */
   clientIp?: string;
 }
 

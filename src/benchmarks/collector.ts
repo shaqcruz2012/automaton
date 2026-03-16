@@ -211,13 +211,13 @@ function collectFinancialHealth(db: Database): FinancialHealth {
     db,
     `SELECT
        COALESCE(SUM(amount_cents), 0) as total,
-       MAX(COUNT(DISTINCT date(created_at)), 1) as days
+       COUNT(DISTINCT date(created_at)) as days
      FROM expense_events WHERE created_at >= ?`,
     since7d,
   );
   const burnTotal = burnRow?.total ?? 0;
-  const burnDays = burnRow?.days ?? 1;
-  const burnRate7dCentsPerDay = Math.ceil(safeDivide(burnTotal, Math.max(burnDays, 1)));
+  const burnDays = Math.max(burnRow?.days ?? 1, 1);
+  const burnRate7dCentsPerDay = Math.ceil(safeDivide(burnTotal, burnDays));
 
   return {
     usdcBalance,
