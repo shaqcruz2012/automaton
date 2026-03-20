@@ -273,12 +273,25 @@ function applyMutation(stratPath, mutation) {
 
 // ─── Backtest Runner ─────────────────────────────────────
 
-function runBacktest(stratPath) {
+// Map agents to their focus symbols
+const AGENT_SYMBOLS = {
+  alpha_researcher: "SPY",
+  stat_arb_quant: "QQQ",
+  macro_quant: "TLT",
+  vol_quant: "SPY",
+  hf_quant: "AAPL",
+  microstructure_researcher: "IWM",
+  econ_researcher: "GLD",
+};
+
+function runBacktest(stratPath, agentRole) {
+  const symbol = AGENT_SYMBOLS[agentRole] || "SPY";
   try {
     const output = execSync(`node "${stratPath}"`, {
       cwd: ROOT,
       timeout: 30_000,
       encoding: "utf-8",
+      env: { ...process.env, SYMBOL: symbol },
     });
 
     // Parse metrics
@@ -381,7 +394,7 @@ async function main() {
 
   // Get baseline
   console.log("Running baseline...");
-  const baseline = runBacktest(stratPath);
+  const baseline = runBacktest(stratPath, opts.agent);
   let bestSharpe = baseline.ok ? (baseline.metrics.sharpe ?? -Infinity) : -Infinity;
   console.log(`Baseline Sharpe: ${bestSharpe.toFixed(4)}\n`);
   logResult(opts.agent, "baseline", baseline.metrics, "baseline");
@@ -419,7 +432,7 @@ async function main() {
     applyMutation(stratPath, mutation);
 
     // Run backtest
-    const result = runBacktest(stratPath);
+    const result = runBacktest(stratPath, opts.agent);
 
     if (!result.ok) {
       console.log(`  CRASH: ${result.error?.slice(0, 100)}`);
@@ -467,7 +480,7 @@ async function main() {
   console.log(`╚══════════════════════════════════════════════════╝\n`);
 
   // Run final backtest with best strategy
-  const finalResult = runBacktest(stratPath);
+  const finalResult = runBacktest(stratPath, opts.agent);
   if (finalResult.ok) {
     console.log("Final best strategy metrics:");
     console.log(finalResult.raw);

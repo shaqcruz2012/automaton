@@ -24,8 +24,8 @@ const CONFIG = {
   symbol: "SPY",            // ticker symbol (uses real data if cached, else synthetic)
 
   // Strategy parameters — agents change these
-  lookback: 20,           // signal lookback period
-  threshold: 0.02,        // signal threshold for entry
+  lookback: 40,           // signal lookback period
+  threshold: 0.0200,        // signal threshold for entry
   stopLoss: -0.05,        // stop loss as fraction
   takeProfit: 0.10,       // take profit as fraction
   positionSize: 0.10,     // fraction of portfolio per position
@@ -48,25 +48,18 @@ const CONFIG = {
  */
 function generateSignals(prices) {
   const signals = [];
-  const { lookback, threshold } = CONFIG;
-
-  for (let i = lookback; i < prices.length; i++) {
-    const current = prices[i].close;
-    const past = prices[i - lookback].close;
-    const returns = (current - past) / past;
-
-    // Simple momentum signal (baseline — agent replaces this)
+  const fast = 8, slow = 40;
+  for (let i = slow; i < prices.length; i++) {
+    let fastSum = 0, slowSum = 0;
+    for (let j = i - fast; j < i; j++) fastSum += prices[j].close;
+    for (let j = i - slow; j < i; j++) slowSum += prices[j].close;
+    const fastMA = fastSum / fast;
+    const slowMA = slowSum / slow;
     let signal = 0;
-    if (returns > threshold) signal = 1;    // momentum long
-    if (returns < -threshold) signal = -1;  // momentum short
-
-    signals.push({
-      date: prices[i].date,
-      signal,
-      price: current,
-    });
+    if (fastMA > slowMA * 1.001) signal = 1;
+    if (fastMA < slowMA * 0.999) signal = -1;
+    signals.push({ date: prices[i].date, signal, price: prices[i].close });
   }
-
   return signals;
 }
 
