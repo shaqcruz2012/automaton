@@ -1,0 +1,26 @@
+{
+  "name": "inferred-analysis",
+  "private": true,
+  "version": "6.0.0",
+  "type": "module",
+  "description": "AI-native quant hedge fund and research lab. Autonomous agents discover alpha through self-improving feedback loops.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "loop:init": "node agents/loop.js init",
+    "loop:summary": "node agents/loop.js summary",
+    "loop:best": "node agents/loop.js best",
+    "evaluate": "node agents/evaluate.js",
+    "backtest": "node agents/backtests/template.js"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.0",
+    "vite": "^5.4.0"
+  }
+}
