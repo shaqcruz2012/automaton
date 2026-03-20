@@ -46,3 +46,9 @@ experiment_id	commit	novelty	accuracy	actionability	depth	composite	status	descr
 2026-03-20T06:53:34.785Z	ensemble_weighted	SPY	-2.7966	-99.98%	99.98%	161	1266	204.96
 2026-03-20T06:53:39.036Z	ensemble_majority	SPY	-2.7966	-99.98%	99.98%	161	1266	204.96
 2026-03-20T06:53:40.151Z	ensemble_unanimous	QQQ	-2.9209	-99.99%	99.99%	201	1266	89.45
+2026-03-20T07:02:16.057Z	macro_quant	baseline	-3.4715	-2.2361	-0.9239	-1.0000	1.0000	0.3670	215	baseline
+2026-03-20T07:02:16.195Z	macro_quant	adaptive_momentum	-3.3973	-2.2553	-0.9163	-1.0000	1.0000	0.4040	223	keep
+2026-03-20T07:02:16.275Z	macro_quant	price_channel	-3.4223	-1.2522	-0.9168	-1.0000	1.0000	0.0460	204	discard
+2026-03-20T07:02:16.347Z	macro_quant	mean_reversion	-2.4319	-1.4699	-0.7191	-0.9982	0.9982	0.2830	145	keep
+2026-03-20T07:02:16.421Z	macro_quant	adaptive_momentum	-3.3834	-2.3062	-0.9145	-1.0000	1.0000	0.4080	201	discard
+2026-03-20T07:02:16.492Z	macro_quant	volatility_breakout	-4.7712	-2.2651	-0.9906	-1.0000	1.0000	0.0840	417	discard
