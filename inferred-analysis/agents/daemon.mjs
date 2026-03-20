@@ -249,6 +249,22 @@ async function main() {
 
     runAgentCycle(agent, opts.iterations, opts.paperclipUrl);
 
+    // Send notification report every full rotation (after all 7 agents have run)
+    if (cycleCount % RESEARCH_AGENTS.length === 0) {
+      log("Full rotation complete — sending status report");
+      try {
+        execSync(`node "${join(__dirname, "notify.mjs")}" --telegram`, {
+          cwd: ROOT,
+          timeout: 30_000,
+          encoding: "utf-8",
+          env: { ...process.env },
+        });
+        log("Status report sent");
+      } catch {
+        log("Status report: Telegram not configured (set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)");
+      }
+    }
+
     if (opts.once) {
       log("Single-run mode — exiting");
       break;
