@@ -155,7 +155,7 @@ function computeSimMetrics(dailyReturns, initialCapital) {
   // Calmar = annualized return / max drawdown
   const totalReturn = (terminalWealth - initialCapital) / initialCapital;
   const annReturn = Math.pow(1 + totalReturn, 252 / n) - 1;
-  const calmar = maxDD > 0 ? annReturn / maxDD : 0;
+  const calmar = (maxDD > 0 && isFinite(annReturn)) ? annReturn / maxDD : 0;
 
   return { terminalWealth, maxDrawdown: maxDD, sharpe, calmar };
 }
@@ -414,7 +414,8 @@ function analyzeDistribution(results, label, initialCapital) {
   const sharpeMean = mean(sharpes);
   const sharpeStd = std(sharpes);
   const sharpeZ = sharpeStd > 0 ? sharpeMean / (sharpeStd / Math.sqrt(n)) : 0;
-  const sharpePval = 1 - normalCDF(sharpeZ);
+  // Two-sided test: is Sharpe statistically different from 0?
+  const sharpePval = 2 * (1 - normalCDF(Math.abs(sharpeZ)));
   const sharpeSig = sharpePval < 0.05;
 
   console.log(`\n${"=".repeat(66)}`);
