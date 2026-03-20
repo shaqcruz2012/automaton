@@ -26,3 +26,9 @@ experiment_id	commit	novelty	accuracy	actionability	depth	composite	status	descr
 2026-03-20T06:40:59.820Z	stat_arb_quant	price_channel	-2.3508	-0.6596	-0.7007	-0.9976	0.9976	0.0290	122	discard
 2026-03-20T06:40:59.894Z	stat_arb_quant	volatility_breakout	-2.0826	-0.4143	-0.6197	-0.9925	0.9926	0.0150	72	discard
 2026-03-20T06:40:59.968Z	stat_arb_quant	adaptive_momentum	-2.8559	-1.9597	-0.8335	-0.9999	0.9999	0.4320	175	discard
+2026-03-20T06:47:15.970Z	stat_arb_quant	baseline	-1.9782	-1.4161	-0.5912	-0.9878	0.9878	0.4760	73	baseline
+2026-03-20T06:47:16.106Z	stat_arb_quant	price_channel	-2.2667	-0.6071	-0.6762	-0.9963	0.9963	0.0280	110	discard
+2026-03-20T06:47:16.181Z	stat_arb_quant	price_channel	-2.7478	-0.8659	-0.8039	-0.9997	0.9997	0.0370	158	discard
+2026-03-20T06:47:16.256Z	stat_arb_quant	adaptive_momentum	-3.1021	-2.1859	-0.8784	-1.0000	1.0000	0.4670	199	discard
+2026-03-20T06:47:16.330Z	stat_arb_quant	momentum_crossover	-1.6639	-1.1812	-0.4940	-0.9606	0.9607	0.4900	59	keep
+2026-03-20T06:47:16.403Z	stat_arb_quant	rsi_contrarian	-2.5847	-0.9477	-0.7654	-0.9994	0.9994	0.0890	108	discard

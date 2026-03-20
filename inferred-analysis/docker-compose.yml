@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: paperclip
+      POSTGRES_PASSWORD: paperclip
+      POSTGRES_DB: paperclip
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperclip"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  paperclip:
+    image: ghcr.io/nichochar/paperclip-server:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3100:3100"
+    environment:
+      DATABASE_URL: postgres://paperclip:paperclip@postgres:5432/paperclip
+      SERVE_UI: "true"
+      PAPERCLIP_MIGRATION_AUTO_APPLY: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3100/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  daemon:
+    build: .
+    restart: always
+    depends_on:
+      paperclip:
+        condition: service_healthy
+    environment:
+      PAPERCLIP_URL: http://paperclip:3100
+      ALPHA_VANTAGE_KEY: ${ALPHA_VANTAGE_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+    volumes:
+      - daemon-data:/app/agents/outputs
+      - daemon-results:/app/agents/results
+    command: ["node", "agents/daemon.mjs"]
+
+  notifier:
+    build: .
+    restart: always
+    depends_on:
+      - daemon
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      PAPERCLIP_URL: http://paperclip:3100
+    volumes:
+      - daemon-data:/app/agents/outputs:ro
+      - daemon-results:/app/agents/results:ro
+    command: ["node", "agents/notify.mjs", "--telegram", "--watch", "900"]
+
+volumes:
+  pgdata:
+  daemon-data:
+  daemon-results:

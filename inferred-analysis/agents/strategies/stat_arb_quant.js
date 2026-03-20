@@ -24,7 +24,7 @@ const CONFIG = {
   symbol: "SPY",            // ticker symbol (uses real data if cached, else synthetic)
 
   // Strategy parameters — agents change these
-  lookback: 40,           // signal lookback period
+  lookback: 39,           // signal lookback period
   threshold: 0.0200,        // signal threshold for entry
   stopLoss: -0.05,        // stop loss as fraction
   takeProfit: 0.10,       // take profit as fraction
@@ -48,7 +48,7 @@ const CONFIG = {
  */
 function generateSignals(prices) {
   const signals = [];
-  const fast = 8, slow = 40;
+  const fast = 17, slow = 39;
   for (let i = slow; i < prices.length; i++) {
     let fastSum = 0, slowSum = 0;
     for (let j = i - fast; j < i; j++) fastSum += prices[j].close;
