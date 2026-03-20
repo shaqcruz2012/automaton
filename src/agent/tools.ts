@@ -2929,6 +2929,283 @@ Model: ${ctx.inference.getDefaultModel()}
       },
     },
 
+    // === Paperclip Integration Tools ===
+    {
+      name: "paperclip_hire",
+      description:
+        "Hire a new AI agent on Paperclip to handle specialized work. " +
+        "Agents persist and can be assigned multiple tasks. " +
+        "Use for ongoing roles (researcher, engineer, writer) rather than one-off tasks.",
+      category: "subagent" as ToolCategory,
+      riskLevel: "caution" as RiskLevel,
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Agent name (e.g., 'Research Agent')" },
+          role: { type: "string", description: "Role: ceo, engineer, researcher, writer, analyst" },
+          capabilities: { type: "string", description: "What this agent does (free text)" },
+          adapter_type: {
+            type: "string",
+            description: "Agent runtime: process, claude_local, codex_local, cursor_local, http",
+          },
+        },
+        required: ["name", "role"],
+      },
+      execute: async (args, ctx) => {
+        const { createPaperclipClient } = await import("../paperclip/client.js");
+        const client = createPaperclipClient({
+          paperclipUrl: ctx.config.paperclipUrl,
+          paperclipApiKey: ctx.config.paperclipApiKey,
+          paperclipCompanyId: ctx.config.paperclipCompanyId,
+        });
+
+        if (!client) {
+          return "Paperclip not configured. Set paperclipUrl, paperclipApiKey, and paperclipCompanyId in config.";
+        }
+
+        const result = await client.hireAgent({
+          name: args.name as string,
+          role: args.role as string,
+          capabilities: args.capabilities as string | undefined,
+          adapterType: args.adapter_type as string | undefined,
+        });
+
+        if (!result.ok) return `Failed to hire agent: ${result.error}`;
+        return `Agent hired: ${result.data!.name} (id: ${result.data!.id}, role: ${result.data!.role})`;
+      },
+    },
+    {
+      name: "paperclip_task",
+      description:
+        "Create and assign a task to a Paperclip agent. " +
+        "The agent will be woken up to process it. Use for delegating work to hired agents.",
+      category: "subagent" as ToolCategory,
+      riskLevel: "caution" as RiskLevel,
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Task title" },
+          description: { type: "string", description: "Detailed task description" },
+          assignee_id: { type: "string", description: "Agent ID to assign to (from paperclip_hire)" },
+          priority: { type: "string", enum: ["low", "medium", "high", "urgent"], description: "Task priority" },
+        },
+        required: ["title", "description"],
+      },
+      execute: async (args, ctx) => {
+        const { createPaperclipClient } = await import("../paperclip/client.js");
+        const client = createPaperclipClient({
+          paperclipUrl: ctx.config.paperclipUrl,
+          paperclipApiKey: ctx.config.paperclipApiKey,
+          paperclipCompanyId: ctx.config.paperclipCompanyId,
+        });
+
+        if (!client) {
+          return "Paperclip not configured. Set paperclipUrl, paperclipApiKey, and paperclipCompanyId in config.";
+        }
+
+        const taskResult = await client.createTask({
+          title: args.title as string,
+          description: args.description as string,
+          assigneeId: args.assignee_id as string | undefined,
+          priority: args.priority as string | undefined,
+        });
+
+        if (!taskResult.ok) return `Failed to create task: ${taskResult.error}`;
+
+        // Wake the assigned agent if specified
+        if (args.assignee_id) {
+          await client.wakeAgent(args.assignee_id as string);
+        }
+
+        return `Task created: "${taskResult.data!.title}" (id: ${taskResult.data!.id}, status: ${taskResult.data!.status})`;
+      },
+    },
+    {
+      name: "paperclip_status",
+      description:
+        "Check status of Paperclip agents and tasks. " +
+        "Use to monitor progress on delegated work and report back to your boss.",
+      category: "subagent" as ToolCategory,
+      riskLevel: "safe" as RiskLevel,
+      parameters: {
+        type: "object",
+        properties: {
+          agent_id: { type: "string", description: "Optional: check a specific agent's tasks" },
+          task_id: { type: "string", description: "Optional: check a specific task" },
+        },
+      },
+      execute: async (args, ctx) => {
+        const { createPaperclipClient } = await import("../paperclip/client.js");
+        const client = createPaperclipClient({
+          paperclipUrl: ctx.config.paperclipUrl,
+          paperclipApiKey: ctx.config.paperclipApiKey,
+          paperclipCompanyId: ctx.config.paperclipCompanyId,
+        });
+
+        if (!client) {
+          return "Paperclip not configured. Set paperclipUrl, paperclipApiKey, and paperclipCompanyId in config.";
+        }
+
+        // Check specific task
+        if (args.task_id) {
+          const task = await client.getTask(args.task_id as string);
+          if (!task.ok) return `Failed to get task: ${task.error}`;
+          const t = task.data!;
+          return `Task "${t.title}" — status: ${t.status}, assignee: ${t.assigneeId ?? "unassigned"}`;
+        }
+
+        // List agents and their tasks
+        const agentsResult = await client.listAgents();
+        if (!agentsResult.ok) return `Failed to list agents: ${agentsResult.error}`;
+
+        const agents = agentsResult.data!;
+        if (agents.length === 0) return "No agents hired yet. Use paperclip_hire to create agents.";
+
+        const lines: string[] = [`Paperclip Agents (${agents.length}):`];
+        for (const agent of agents) {
+          if (args.agent_id && agent.id !== args.agent_id) continue;
+          lines.push(`- ${agent.name} (${agent.role}) [${agent.status}] id: ${agent.id}`);
+
+          // Get tasks for this agent
+          const tasks = await client.listTasks({ assigneeId: agent.id });
+          if (tasks.ok && tasks.data && tasks.data.length > 0) {
+            for (const task of tasks.data) {
+              lines.push(`  - "${task.title}" [${task.status}]`);
+            }
+          }
+        }
+
+        return lines.join("\n");
+      },
+    },
+
+    {
+      name: "paperclip_bootstrap_org",
+      description:
+        "Bootstrap the full quant fund org chart in Paperclip. " +
+        "Creates ~30+ agents across C-suite, trading desks, AI research lab, " +
+        "technology, operations, risk, finance, compliance, and HR. " +
+        "This is a one-time setup — run it to initialize the entire organization.",
+      category: "subagent" as ToolCategory,
+      riskLevel: "dangerous" as RiskLevel,
+      parameters: {
+        type: "object",
+        properties: {
+          confirm: {
+            type: "boolean",
+            description: "Must be true to proceed. This creates many agents.",
+          },
+        },
+        required: ["confirm"],
+      },
+      execute: async (args, ctx) => {
+        if (!(args.confirm as boolean)) {
+          return "Set confirm=true to proceed with org bootstrap.";
+        }
+
+        const { createPaperclipClient } = await import("../paperclip/client.js");
+        const client = createPaperclipClient({
+          paperclipUrl: ctx.config.paperclipUrl,
+          paperclipApiKey: ctx.config.paperclipApiKey,
+          paperclipCompanyId: ctx.config.paperclipCompanyId,
+        });
+
+        if (!client) {
+          return "Paperclip not configured. Set paperclipUrl, paperclipApiKey, and paperclipCompanyId in config.";
+        }
+
+        const { bootstrapQuantFundOrg } = await import("../paperclip/org-bootstrap.js");
+        const result = await bootstrapQuantFundOrg(client);
+
+        const lines = [
+          `Org bootstrap complete: ${result.hired} hired, ${result.failed} failed.`,
+          "",
+          "Agents:",
+          ...result.agents.map((a) => `  - ${a.name} (${a.role}) → ${a.id}`),
+        ];
+
+        if (result.errors.length > 0) {
+          lines.push("", "Errors:", ...result.errors.map((e) => `  - ${e}`));
+        }
+
+        return lines.join("\n");
+      },
+    },
+    {
+      name: "paperclip_org_chart",
+      description:
+        "Display the quant fund org chart structure. " +
+        "Shows the full hierarchy from CEO down through all desks and functions.",
+      category: "subagent" as ToolCategory,
+      riskLevel: "safe" as RiskLevel,
+      parameters: { type: "object", properties: {} },
+      execute: async () => {
+        const { getOrgChartSummary } = await import("../paperclip/org-bootstrap.js");
+        return getOrgChartSummary();
+      },
+    },
+
+    // === Sub-Agent Tools (Chief of Staff) ===
+    {
+      name: "run_subagent",
+      description:
+        "Run a sub-agent synchronously to handle a task and return the result. " +
+        "Use this for focused tasks like research, code generation, drafting, or analysis. " +
+        "The sub-agent gets its own inference loop with shell access, file I/O, and web access. " +
+        "For long-running tasks (>5 min), prefer create_goal instead.",
+      category: "subagent" as ToolCategory,
+      riskLevel: "caution" as RiskLevel,
+      parameters: {
+        type: "object",
+        properties: {
+          task: {
+            type: "string",
+            description: "Clear description of what the sub-agent should accomplish",
+          },
+          role: {
+            type: "string",
+            description: "Sub-agent specialization: researcher, coder, writer, analyst, generalist",
+            enum: ["researcher", "coder", "writer", "analyst", "generalist"],
+          },
+          timeout_seconds: {
+            type: "number",
+            description: "Max execution time in seconds (default: 120, max: 300)",
+          },
+        },
+        required: ["task"],
+      },
+      execute: async (args, ctx) => {
+        const { runInlineSubagent } = await import("../orchestration/inline-subagent.js");
+        const task = args.task as string;
+        const role = (args.role as string) ?? "generalist";
+        const timeoutSeconds = Math.min((args.timeout_seconds as number) ?? 120, 300);
+
+        if (!task.trim()) {
+          return "Error: task description cannot be empty.";
+        }
+
+        try {
+          const result = await runInlineSubagent({
+            task,
+            role,
+            timeoutMs: timeoutSeconds * 1000,
+            db: ctx.db.raw,
+            inference: ctx.inference,
+            conway: ctx.conway,
+          });
+
+          if (!result.success) {
+            return `Sub-agent failed: ${result.error}\n\nPartial output:\n${result.output}`;
+          }
+
+          return `Sub-agent completed (${result.turns} turns, ${result.durationMs}ms):\n\n${result.output}`;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return `Sub-agent error: ${msg}`;
+        }
+      },
+    },
+
     // === Orchestration Tools ===
     {
       name: "create_goal",

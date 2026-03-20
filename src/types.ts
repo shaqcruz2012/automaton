@@ -72,6 +72,10 @@ export interface AutomatonConfig {
   togetherApiKey?: string;
   hfApiKey?: string;
   mistralApiKey?: string;
+  /** Paperclip control plane integration */
+  paperclipUrl?: string;
+  paperclipApiKey?: string;
+  paperclipCompanyId?: string;
 }
 
 export interface CreatorTaxConfig {
@@ -171,7 +175,10 @@ export type ToolCategory =
   | "git"
   | "registry"
   | "replication"
-  | "memory";
+  | "memory"
+  | "social"
+  | "orchestration"
+  | "subagent";
 
 export interface ToolContext {
   readonly identity: AutomatonIdentity;
