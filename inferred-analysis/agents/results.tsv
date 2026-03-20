@@ -1,1 +1,12 @@
 experiment_id	commit	novelty	accuracy	actionability	depth	composite	status	description	timestamp
+2026-03-20T06:28:04.982Z	alpha_researcher	baseline	-2.8879	-1.6366	-0.8342	-0.9999	0.9999	0.2330	214	baseline
+2026-03-20T06:28:05.106Z	alpha_researcher	mean_reversion	-3.0912	-1.4534	-0.8711	-1.0000	1.0000	0.1610	148	discard
+2026-03-20T06:28:05.167Z	alpha_researcher	price_channel	-1.4835	-0.3367	-0.4215	-0.9140	0.9140	0.0240	74	keep
+2026-03-20T06:28:05.220Z	alpha_researcher	momentum_crossover	-1.5709	-1.0788	-0.4568	-0.9411	0.9412	0.5160	49	discard
+2026-03-20T06:28:05.272Z	alpha_researcher	adaptive_momentum	-3.2931	-2.3094	-0.9024	-1.0000	1.0000	0.4740	203	discard
+2026-03-20T06:28:05.325Z	alpha_researcher	price_channel	-2.0154	-0.6195	-0.5950	-0.9887	0.9887	0.0320	138	discard
+2026-03-20T06:28:05.377Z	alpha_researcher	adaptive_momentum	-2.4630	-1.6218	-0.7342	-0.9988	0.9988	0.3790	197	discard
+2026-03-20T06:28:05.426Z	alpha_researcher	rsi_contrarian	-2.3279	-0.7178	-0.6945	-0.9976	0.9976	0.0610	76	discard
+2026-03-20T06:28:05.477Z	alpha_researcher	price_channel	-2.4551	-0.8109	-0.7310	-0.9988	0.9988	0.0400	162	discard
+2026-03-20T06:28:05.527Z	alpha_researcher	mean_reversion	-0.4397	-0.0122	-0.2120	-0.1993	0.1998	0.0010	2	keep
+2026-03-20T06:28:05.577Z	alpha_researcher	momentum_crossover	-2.2598	-1.6203	-0.6733	-0.9963	0.9963	0.4660	95	discard
