@@ -70,3 +70,9 @@ experiment_id	commit	novelty	accuracy	actionability	depth	composite	status	descr
 2026-03-20T07:47:16.524Z	microstructure_researcher	mean_reversion	-4.1822	-2.6385	-0.9735	-1.0000	1.0000	0.2970	309	discard
 2026-03-20T07:47:16.599Z	microstructure_researcher	rsi_contrarian	-1.5506	-0.3023	-0.4410	-0.9318	0.9321	0.0200	38	keep
 2026-03-20T07:47:16.671Z	microstructure_researcher	adaptive_momentum	-3.5136	-2.4609	-0.9287	-1.0000	1.0000	0.4210	225	discard
+2026-03-20T08:02:16.345Z	econ_researcher	baseline	-3.2947	-2.1424	-0.9019	-1.0000	1.0000	0.3410	217	baseline
+2026-03-20T08:02:16.484Z	econ_researcher	rsi_contrarian	-2.7827	-1.2340	-0.8118	-0.9998	0.9998	0.1280	141	keep
+2026-03-20T08:02:16.561Z	econ_researcher	price_channel	-3.2873	-1.2656	-0.9003	-1.0000	1.0000	0.0460	230	discard
+2026-03-20T08:02:16.637Z	econ_researcher	momentum_crossover	-2.7723	-1.9856	-0.8114	-0.9998	0.9998	0.4660	147	keep
+2026-03-20T08:02:16.710Z	econ_researcher	rsi_contrarian	-2.1991	-0.7389	-0.6554	-0.9953	0.9953	0.0730	87	keep
+2026-03-20T08:02:16.787Z	econ_researcher	price_channel	-2.5920	-0.7514	-0.7674	-0.9994	0.9994	0.0260	128	discard
