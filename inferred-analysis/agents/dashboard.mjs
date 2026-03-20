@@ -228,12 +228,20 @@ function boxLine(content, width) {
 function computeAgentStats(rows) {
   const ALL_AGENTS = [
     "alpha_researcher", "stat_arb_quant", "macro_quant",
-    "vol_quant", "hf_quant", "microstructure_researcher", "econ_researcher"
+    "vol_quant", "hf_quant", "microstructure_researcher", "econ_researcher",
+    "polymarket_btc"
   ];
 
   const agentMap = {};
   for (const a of ALL_AGENTS) {
     agentMap[a] = { agent: a, bestSharpe: NaN, bestStrategy: "---", total: 0, kept: 0, status: "idle" };
+  }
+
+  // Also detect agents not in the hardcoded list
+  for (const r of rows) {
+    if (!agentMap[r.agent] && !r.agent.startsWith("ensemble")) {
+      agentMap[r.agent] = { agent: r.agent, bestSharpe: NaN, bestStrategy: "---", total: 0, kept: 0, status: "idle" };
+    }
   }
 
   for (const r of rows) {
