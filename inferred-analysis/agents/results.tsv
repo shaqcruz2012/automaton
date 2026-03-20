@@ -64,3 +64,9 @@ experiment_id	commit	novelty	accuracy	actionability	depth	composite	status	descr
 2026-03-20T07:32:16.513Z	hf_quant	rsi_contrarian	-3.7336	-2.1421	-0.9465	-1.0000	1.0000	0.1990	283	discard
 2026-03-20T07:32:16.587Z	hf_quant	mean_reversion	-3.1652	-2.1384	-0.8806	-1.0000	1.0000	0.3730	160	discard
 2026-03-20T07:32:16.658Z	hf_quant	adaptive_momentum	-2.6689	-1.7685	-0.7927	-0.9996	0.9997	0.4190	156	discard
+2026-03-20T07:47:16.239Z	microstructure_researcher	baseline	-3.6646	-2.4963	-0.9423	-1.0000	1.0000	0.3860	239	baseline
+2026-03-20T07:47:16.372Z	microstructure_researcher	adaptive_momentum	-3.0523	-2.0745	-0.8675	-1.0000	1.0000	0.3930	203	keep
+2026-03-20T07:47:16.451Z	microstructure_researcher	mean_reversion	-3.1047	-2.0563	-0.8720	-1.0000	1.0000	0.3790	197	discard
+2026-03-20T07:47:16.524Z	microstructure_researcher	mean_reversion	-4.1822	-2.6385	-0.9735	-1.0000	1.0000	0.2970	309	discard
+2026-03-20T07:47:16.599Z	microstructure_researcher	rsi_contrarian	-1.5506	-0.3023	-0.4410	-0.9318	0.9321	0.0200	38	keep
+2026-03-20T07:47:16.671Z	microstructure_researcher	adaptive_momentum	-3.5136	-2.4609	-0.9287	-1.0000	1.0000	0.4210	225	discard
