@@ -58,3 +58,9 @@ experiment_id	commit	novelty	accuracy	actionability	depth	composite	status	descr
 2026-03-20T07:17:16.434Z	vol_quant	adaptive_momentum	-2.8793	-2.0019	-0.8358	-0.9999	0.9999	0.4330	175	discard
 2026-03-20T07:17:16.505Z	vol_quant	mean_reversion	-3.9813	-2.3359	-0.9636	-1.0000	1.0000	0.2250	291	discard
 2026-03-20T07:17:16.577Z	vol_quant	adaptive_momentum	-3.4755	-2.3749	-0.9248	-1.0000	1.0000	0.4160	225	discard
+2026-03-20T07:32:16.224Z	hf_quant	baseline	-2.9215	-1.9274	-0.8491	-0.9999	0.9999	0.4580	187	baseline
+2026-03-20T07:32:16.361Z	hf_quant	price_channel	-2.4751	-0.7105	-0.7368	-0.9988	0.9988	0.0290	124	keep
+2026-03-20T07:32:16.440Z	hf_quant	adaptive_momentum	-2.7873	-1.9165	-0.8195	-0.9998	0.9998	0.4560	160	discard
+2026-03-20T07:32:16.513Z	hf_quant	rsi_contrarian	-3.7336	-2.1421	-0.9465	-1.0000	1.0000	0.1990	283	discard
+2026-03-20T07:32:16.587Z	hf_quant	mean_reversion	-3.1652	-2.1384	-0.8806	-1.0000	1.0000	0.3730	160	discard
+2026-03-20T07:32:16.658Z	hf_quant	adaptive_momentum	-2.6689	-1.7685	-0.7927	-0.9996	0.9997	0.4190	156	discard
