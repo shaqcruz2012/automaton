@@ -43,3 +43,6 @@ experiment_id	commit	novelty	accuracy	actionability	depth	composite	status	descr
 2026-03-20T06:50:11.669Z	polymarket_btc	btc_order_flow	-0.0100	-0.0100	-0.1600	-0.8000	5.0000	0.5500	116	discard
 2026-03-20T06:50:11.671Z	polymarket_btc	btc_ma_crossover	-0.0600	-0.0600	-0.7400	-24.0000	32.6000	0.5200	411	discard
 2026-03-20T06:50:11.671Z	polymarket_btc	btc_vwap_reversion	-0.1700	-0.1500	-0.7100	-20.6000	29.0000	0.4700	134	discard
+2026-03-20T06:53:34.785Z	ensemble_weighted	SPY	-2.7966	-99.98%	99.98%	161	1266	204.96
+2026-03-20T06:53:39.036Z	ensemble_majority	SPY	-2.7966	-99.98%	99.98%	161	1266	204.96
+2026-03-20T06:53:40.151Z	ensemble_unanimous	QQQ	-2.9209	-99.99%	99.99%	201	1266	89.45
