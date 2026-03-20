@@ -52,3 +52,9 @@ experiment_id	commit	novelty	accuracy	actionability	depth	composite	status	descr
 2026-03-20T07:02:16.347Z	macro_quant	mean_reversion	-2.4319	-1.4699	-0.7191	-0.9982	0.9982	0.2830	145	keep
 2026-03-20T07:02:16.421Z	macro_quant	adaptive_momentum	-3.3834	-2.3062	-0.9145	-1.0000	1.0000	0.4080	201	discard
 2026-03-20T07:02:16.492Z	macro_quant	volatility_breakout	-4.7712	-2.2651	-0.9906	-1.0000	1.0000	0.0840	417	discard
+2026-03-20T07:17:16.149Z	vol_quant	baseline	-3.5124	-2.3450	-0.9277	-1.0000	1.0000	0.3760	233	baseline
+2026-03-20T07:17:16.283Z	vol_quant	rsi_contrarian	-2.0414	-0.7061	-0.6060	-0.9907	0.9908	0.0900	88	keep
+2026-03-20T07:17:16.360Z	vol_quant	volatility_breakout	-6.0344	-3.4439	-0.9993	-1.0000	1.0000	0.1480	664	discard
+2026-03-20T07:17:16.434Z	vol_quant	adaptive_momentum	-2.8793	-2.0019	-0.8358	-0.9999	0.9999	0.4330	175	discard
+2026-03-20T07:17:16.505Z	vol_quant	mean_reversion	-3.9813	-2.3359	-0.9636	-1.0000	1.0000	0.2250	291	discard
+2026-03-20T07:17:16.577Z	vol_quant	adaptive_momentum	-3.4755	-2.3749	-0.9248	-1.0000	1.0000	0.4160	225	discard
