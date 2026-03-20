@@ -2,21 +2,14 @@
 /**
  * Strategy Lifecycle Manager — Inferred Analysis
  *
- * Manages the full lifecycle of quantitative trading strategies from initial
- * research through scaling and eventual retirement. Enforces rigorous
- * promotion gates at each stage to ensure only robust strategies receive
- * live capital allocation.
- *
- * Lifecycle States:
- *   RESEARCH → INCUBATION → PAPER_TRADING → LIVE → SCALING → DEGRADING → RETIRED
+ * Manages quant trading strategies through: RESEARCH → INCUBATION → PAPER_TRADING → LIVE → SCALING → DEGRADING → RETIRED
+ * Enforces promotion gates (Sharpe, drawdown, days) at each stage.
  *
  * Usage:
  *   node agents/management/strategy-lifecycle.mjs
  *   import { StrategyLifecycleManager } from './strategy-lifecycle.mjs'
- *
  * @module strategy-lifecycle
  */
-
 import { generateRealisticPrices } from "../data/fetch.mjs";
 
 // ─── Constants ──────────────────────────────────────────
@@ -32,744 +25,367 @@ const STATES = {
   RETIRED: "RETIRED",
 };
 
-/** Ordered promotion path (excludes DEGRADING/RETIRED which are lateral moves) */
-const PROMOTION_PATH = [
-  STATES.RESEARCH,
-  STATES.INCUBATION,
-  STATES.PAPER_TRADING,
-  STATES.LIVE,
-  STATES.SCALING,
-];
+/** Ordered promotion path (DEGRADING/RETIRED are lateral transitions) */
+const PROMO_PATH = [STATES.RESEARCH, STATES.INCUBATION, STATES.PAPER_TRADING, STATES.LIVE, STATES.SCALING];
 
-/** Capital allocation multipliers by state */
-const CAPITAL_MULTIPLIERS = {
-  [STATES.RESEARCH]: 0,
-  [STATES.INCUBATION]: 0,
-  [STATES.PAPER_TRADING]: 0,
-  [STATES.LIVE]: 1.0,
-  [STATES.SCALING]: 2.0,
-  [STATES.DEGRADING]: 0.5,
-  [STATES.RETIRED]: 0,
+/** Capital allocation multipliers by state (INCUBATION=0%, LIVE=base, SCALING=2x) */
+const CAP_MULT = {
+  [STATES.RESEARCH]: 0, [STATES.INCUBATION]: 0, [STATES.PAPER_TRADING]: 0,
+  [STATES.LIVE]: 1.0, [STATES.SCALING]: 2.0, [STATES.DEGRADING]: 0.5, [STATES.RETIRED]: 0,
 };
 
 // ─── Statistical Helpers ────────────────────────────────
 
 /**
- * Compute daily returns from an array of price objects.
- * @param {{ close: number }[]} prices - Array of OHLCV bars
- * @returns {number[]} Daily log returns
+ * Compute daily log returns from price bars.
+ * @param {{ close: number }[]} prices - OHLCV bar array
+ * @returns {number[]} daily log returns
  */
 function computeReturns(prices) {
-  const returns = [];
-  for (let i = 1; i < prices.length; i++) {
-    returns.push(Math.log(prices[i].close / prices[i - 1].close));
+  return prices.slice(1).map((p, i) => Math.log(p.close / prices[i].close));
+}
+
+/**
+ * Annualized Sharpe ratio from daily returns.
+ * @param {number[]} ret - daily return series
+ * @param {number} rf - daily risk-free rate (default ~4% annual)
+ * @returns {number} annualized Sharpe ratio
+ */
+function sharpeRatio(ret, rf = 0.04 / 252) {
+  if (ret.length < 2) return 0;
+  const ex = ret.map(r => r - rf);
+  const mu = ex.reduce((a, b) => a + b, 0) / ex.length;
+  const std = Math.sqrt(ex.reduce((a, r) => a + (r - mu) ** 2, 0) / (ex.length - 1));
+  return std === 0 ? 0 : (mu / std) * Math.sqrt(252);
+}
+
+/**
+ * Maximum drawdown from daily returns as positive fraction.
+ * @param {number[]} ret - daily return series
+ * @returns {number} max drawdown (e.g. 0.15 = 15%)
+ */
+function maxDrawdown(ret) {
+  let peak = 1, eq = 1, dd = 0;
+  for (const r of ret) {
+    eq *= 1 + r;
+    if (eq > peak) peak = eq;
+    dd = Math.max(dd, (peak - eq) / peak);
   }
-  return returns;
+  return dd;
 }
 
 /**
- * Calculate annualized Sharpe ratio from daily returns.
- * @param {number[]} returns - Daily returns
- * @param {number} riskFreeDaily - Daily risk-free rate (default ~4% annual)
- * @returns {number} Annualized Sharpe ratio
+ * Rolling Sharpe over a trailing window.
+ * @param {number[]} ret - daily returns
+ * @param {number} w - lookback window in days
+ * @returns {number} Sharpe of trailing window
  */
-function sharpeRatio(returns, riskFreeDaily = 0.04 / 252) {
-  if (returns.length < 2) return 0;
-  const excess = returns.map((r) => r - riskFreeDaily);
-  const mean = excess.reduce((a, b) => a + b, 0) / excess.length;
-  const variance =
-    excess.reduce((a, r) => a + (r - mean) ** 2, 0) / (excess.length - 1);
-  const std = Math.sqrt(variance);
-  return std === 0 ? 0 : (mean / std) * Math.sqrt(252);
+function rollingSharpe(ret, w = 63) {
+  return sharpeRatio(ret.length < w ? ret : ret.slice(-w));
 }
 
 /**
- * Calculate maximum drawdown from daily returns.
- * @param {number[]} returns - Daily returns
- * @returns {number} Max drawdown as a positive fraction (e.g. 0.15 = 15%)
+ * Estimate annualized alpha (excess return over benchmark).
+ * @param {number[]} s - strategy daily returns
+ * @param {number[]} b - benchmark daily returns
+ * @returns {number} annualized alpha
  */
-function maxDrawdown(returns) {
-  let peak = 1;
-  let equity = 1;
-  let maxDD = 0;
-  for (const r of returns) {
-    equity *= 1 + r;
-    if (equity > peak) peak = equity;
-    const dd = (peak - equity) / peak;
-    if (dd > maxDD) maxDD = dd;
-  }
-  return maxDD;
-}
-
-/**
- * Calculate rolling Sharpe over a trailing window.
- * @param {number[]} returns - Daily returns
- * @param {number} window - Lookback window in days
- * @returns {number} Sharpe of the trailing window
- */
-function rollingSharpe(returns, window = 63) {
-  if (returns.length < window) return sharpeRatio(returns);
-  return sharpeRatio(returns.slice(-window));
-}
-
-/**
- * Estimate alpha: excess return over benchmark.
- * @param {number[]} stratReturns - Strategy daily returns
- * @param {number[]} benchReturns - Benchmark daily returns
- * @returns {number} Annualized alpha
- */
-function estimateAlpha(stratReturns, benchReturns) {
-  const n = Math.min(stratReturns.length, benchReturns.length);
+function estimateAlpha(s, b) {
+  const n = Math.min(s.length, b.length);
   if (n < 20) return 0;
-  const sRet = stratReturns.slice(-n);
-  const bRet = benchReturns.slice(-n);
-  const sMean = sRet.reduce((a, b) => a + b, 0) / n;
-  const bMean = bRet.reduce((a, b) => a + b, 0) / n;
-  return (sMean - bMean) * 252;
+  const sm = s.slice(-n).reduce((a, v) => a + v, 0) / n;
+  const bm = b.slice(-n).reduce((a, v) => a + v, 0) / n;
+  return (sm - bm) * 252;
 }
 
 // ─── Strategy Lifecycle Manager ─────────────────────────
-
-/**
- * Manages trading strategy lifecycles with promotion gates and capital allocation.
- */
+/** Manages strategy lifecycles with promotion gates and capital allocation. */
 export class StrategyLifecycleManager {
-  /**
-   * @param {number} baseAllocation - Base capital allocation per strategy in dollars
-   */
+  /** @param {number} baseAllocation base capital per strategy ($) */
   constructor(baseAllocation = 100_000) {
-    /** @type {Map<string, object>} */
-    this.strategies = new Map();
+    /** @type {Map<string, object>} */ this.strategies = new Map();
     this.baseAllocation = baseAllocation;
     this.benchmarkReturns = null;
   }
 
-  /**
-   * Load benchmark returns for alpha calculations.
-   * @param {number[]} returns - Benchmark daily returns
-   */
-  setBenchmark(returns) {
-    this.benchmarkReturns = returns;
-  }
+  /** @param {number[]} returns benchmark daily returns */
+  setBenchmark(returns) { this.benchmarkReturns = returns; }
 
   /**
    * Register a new strategy in RESEARCH state.
-   * @param {string} name - Unique strategy identifier
-   * @param {object} config - Strategy configuration
-   * @param {string} [config.asset] - Primary asset traded
-   * @param {string} [config.type] - Strategy type (momentum, mean-reversion, etc.)
-   * @param {string} [config.author] - Strategy author
-   * @returns {object} The created strategy record
+   * @param {string} name unique strategy identifier
+   * @param {object} config strategy configuration ({ asset, type, author })
+   * @returns {object} created strategy record
    */
   registerStrategy(name, config = {}) {
-    if (this.strategies.has(name)) {
-      throw new Error(`Strategy "${name}" already registered`);
-    }
+    if (this.strategies.has(name)) throw new Error(`Strategy "${name}" already registered`);
     const strategy = {
-      name,
-      state: STATES.RESEARCH,
-      config,
-      registeredAt: new Date().toISOString(),
+      name, state: STATES.RESEARCH, config, registeredAt: new Date().toISOString(),
       stateHistory: [{ state: STATES.RESEARCH, at: new Date().toISOString() }],
-      metrics: {
-        backtestSharpe: null,
-        backtestDays: 0,
-        walkForwardSharpe: null,
-        walkForwardMaxDD: null,
-        paperSharpe: null,
-        paperDays: 0,
-        liveSharpe: null,
-        liveDays: 0,
-        liveAlpha: null,
-        rollingSharpe63: null,
-      },
-      retireReason: null,
-      degradingSince: null,
+      metrics: { backtestSharpe: null, backtestDays: 0, walkForwardSharpe: null,
+        walkForwardMaxDD: null, paperSharpe: null, paperDays: 0,
+        liveSharpe: null, liveDays: 0, liveAlpha: null, rollingSharpe63: null },
+      retireReason: null, degradingSince: null,
     };
     this.strategies.set(name, strategy);
     return strategy;
   }
 
-  /**
-   * Retrieve a strategy by name.
-   * @param {string} name
-   * @returns {object}
-   */
-  _getStrategy(name) {
-    const s = this.strategies.get(name);
-    if (!s) throw new Error(`Strategy "${name}" not found`);
-    return s;
-  }
+  _get(name) { const s = this.strategies.get(name); if (!s) throw new Error(`Strategy "${name}" not found`); return s; }
+  _transition(s, st) { s.state = st; s.stateHistory.push({ state: st, at: new Date().toISOString() }); }
 
   /**
-   * Transition a strategy to a new state with history tracking.
-   * @param {object} strategy
-   * @param {string} newState
-   */
-  _transition(strategy, newState) {
-    strategy.state = newState;
-    strategy.stateHistory.push({ state: newState, at: new Date().toISOString() });
-  }
-
-  /**
-   * Promote a strategy to the next lifecycle stage.
-   * Validates promotion gates before allowing transition.
-   * @param {string} name - Strategy name
-   * @returns {{ success: boolean, from: string, to: string, reason?: string }}
+   * Promote strategy to next lifecycle stage (with validation gates).
+   * @param {string} name @returns {{ success: boolean, from: string, to: string, reason?: string }}
    */
   promote(name) {
-    const s = this._getStrategy(name);
-    const idx = PROMOTION_PATH.indexOf(s.state);
-
-    if (s.state === STATES.RETIRED) {
-      return { success: false, from: s.state, to: s.state, reason: "Cannot promote a retired strategy" };
-    }
-    if (s.state === STATES.DEGRADING) {
-      return { success: false, from: s.state, to: s.state, reason: "Degrading strategies must recover or be retired" };
-    }
-    if (idx === -1 || idx >= PROMOTION_PATH.length - 1) {
-      return { success: false, from: s.state, to: s.state, reason: "Already at maximum promotion level" };
-    }
-
-    const nextState = PROMOTION_PATH[idx + 1];
-    const gate = this._checkGate(s, nextState);
-    if (!gate.pass) {
-      return { success: false, from: s.state, to: nextState, reason: gate.reason };
-    }
-
-    this._transition(s, nextState);
-    return { success: true, from: PROMOTION_PATH[idx], to: nextState };
+    const s = this._get(name), idx = PROMO_PATH.indexOf(s.state);
+    if (s.state === STATES.RETIRED) return { success: false, from: s.state, to: s.state, reason: "Cannot promote retired strategy" };
+    if (s.state === STATES.DEGRADING) return { success: false, from: s.state, to: s.state, reason: "Must recover or retire" };
+    if (idx < 0 || idx >= PROMO_PATH.length - 1) return { success: false, from: s.state, to: s.state, reason: "At max level" };
+    const next = PROMO_PATH[idx + 1], gate = this._checkGate(s, next);
+    if (!gate.pass) return { success: false, from: s.state, to: next, reason: gate.reason };
+    this._transition(s, next);
+    return { success: true, from: PROMO_PATH[idx], to: next };
   }
 
-  /**
-   * Check promotion gate requirements for a target state.
-   * @param {object} strategy
-   * @param {string} targetState
-   * @returns {{ pass: boolean, reason?: string }}
-   */
-  _checkGate(strategy, targetState) {
-    const m = strategy.metrics;
-
-    switch (targetState) {
+  /** Check promotion gate for target state. */
+  _checkGate(s, target) {
+    const m = s.metrics, fmt = (v) => (v ?? 0).toFixed(2);
+    switch (target) {
       case STATES.INCUBATION:
-        if (m.backtestSharpe === null || m.backtestSharpe <= 0.5) {
-          return { pass: false, reason: `Backtest Sharpe ${(m.backtestSharpe ?? 0).toFixed(2)} <= 0.5 required` };
-        }
-        if (m.backtestDays < 252) {
-          return { pass: false, reason: `Backtest days ${m.backtestDays} < 252 required` };
-        }
+        if (!m.backtestSharpe || m.backtestSharpe <= 0.5) return { pass: false, reason: `Backtest Sharpe ${fmt(m.backtestSharpe)} <= 0.5` };
+        if (m.backtestDays < 252) return { pass: false, reason: `Backtest days ${m.backtestDays} < 252` };
         return { pass: true };
-
       case STATES.PAPER_TRADING:
-        if (m.walkForwardSharpe === null || m.walkForwardSharpe <= 0.3) {
-          return { pass: false, reason: `Walk-forward Sharpe ${(m.walkForwardSharpe ?? 0).toFixed(2)} <= 0.3 required` };
-        }
-        if (m.walkForwardMaxDD !== null && m.walkForwardMaxDD > 0.20) {
-          return { pass: false, reason: `Walk-forward MaxDD ${(m.walkForwardMaxDD * 100).toFixed(1)}% > 20% limit` };
-        }
+        if (!m.walkForwardSharpe || m.walkForwardSharpe <= 0.3) return { pass: false, reason: `WF Sharpe ${fmt(m.walkForwardSharpe)} <= 0.3` };
+        if (m.walkForwardMaxDD != null && m.walkForwardMaxDD > 0.20) return { pass: false, reason: `WF MaxDD ${(m.walkForwardMaxDD * 100).toFixed(1)}% > 20%` };
         return { pass: true };
-
       case STATES.LIVE:
-        if (m.paperDays < 63) {
-          return { pass: false, reason: `Paper trading days ${m.paperDays} < 63 required` };
-        }
-        if (m.paperSharpe === null || m.paperSharpe <= 0.2) {
-          return { pass: false, reason: `Paper Sharpe ${(m.paperSharpe ?? 0).toFixed(2)} <= 0.2 required` };
-        }
+        if (m.paperDays < 63) return { pass: false, reason: `Paper days ${m.paperDays} < 63` };
+        if (!m.paperSharpe || m.paperSharpe <= 0.2) return { pass: false, reason: `Paper Sharpe ${fmt(m.paperSharpe)} <= 0.2` };
         return { pass: true };
-
       case STATES.SCALING:
-        if (m.liveDays < 126) {
-          return { pass: false, reason: `Live days ${m.liveDays} < 126 required` };
-        }
-        if (m.liveSharpe === null || m.liveSharpe <= 0.3) {
-          return { pass: false, reason: `Live Sharpe ${(m.liveSharpe ?? 0).toFixed(2)} <= 0.3 required` };
-        }
-        if (m.liveAlpha === null || m.liveAlpha <= 0) {
-          return { pass: false, reason: `No consistent alpha detected (alpha=${(m.liveAlpha ?? 0).toFixed(4)})` };
-        }
+        if (m.liveDays < 126) return { pass: false, reason: `Live days ${m.liveDays} < 126` };
+        if (!m.liveSharpe || m.liveSharpe <= 0.3) return { pass: false, reason: `Live Sharpe ${fmt(m.liveSharpe)} <= 0.3` };
+        if (!m.liveAlpha || m.liveAlpha <= 0) return { pass: false, reason: `No alpha (${fmt(m.liveAlpha)})` };
         return { pass: true };
-
-      default:
-        return { pass: false, reason: `Unknown target state: ${targetState}` };
+      default: return { pass: false, reason: `Unknown state: ${target}` };
     }
   }
 
-  /**
-   * Demote a strategy back one stage.
-   * @param {string} name - Strategy name
-   * @returns {{ success: boolean, from: string, to: string, reason?: string }}
-   */
+  /** Demote strategy back one stage. @param {string} name */
   demote(name) {
-    const s = this._getStrategy(name);
-
-    if (s.state === STATES.RETIRED) {
-      return { success: false, from: s.state, to: s.state, reason: "Cannot demote a retired strategy" };
-    }
-    if (s.state === STATES.DEGRADING) {
-      this._transition(s, STATES.RETIRED);
-      s.retireReason = "Demoted from DEGRADING state";
-      return { success: true, from: STATES.DEGRADING, to: STATES.RETIRED };
-    }
-
-    const idx = PROMOTION_PATH.indexOf(s.state);
-    if (idx <= 0) {
-      return { success: false, from: s.state, to: s.state, reason: "Already at lowest stage" };
-    }
-
-    const prevState = PROMOTION_PATH[idx - 1];
-    this._transition(s, prevState);
-    return { success: true, from: PROMOTION_PATH[idx], to: prevState };
+    const s = this._get(name);
+    if (s.state === STATES.RETIRED) return { success: false, from: s.state, to: s.state, reason: "Cannot demote retired" };
+    if (s.state === STATES.DEGRADING) { this._transition(s, STATES.RETIRED); s.retireReason = "Demoted from DEGRADING"; return { success: true, from: STATES.DEGRADING, to: STATES.RETIRED }; }
+    const idx = PROMO_PATH.indexOf(s.state);
+    if (idx <= 0) return { success: false, from: s.state, to: s.state, reason: "At lowest stage" };
+    this._transition(s, PROMO_PATH[idx - 1]);
+    return { success: true, from: PROMO_PATH[idx], to: PROMO_PATH[idx - 1] };
   }
 
-  /**
-   * Force retire a strategy with a given reason.
-   * @param {string} name - Strategy name
-   * @param {string} reason - Retirement reason
-   * @returns {{ success: boolean, from: string }}
-   */
+  /** Force retire a strategy. @param {string} name @param {string} reason */
   retire(name, reason = "Manual retirement") {
-    const s = this._getStrategy(name);
-    if (s.state === STATES.RETIRED) {
-      return { success: false, from: s.state };
-    }
-    const from = s.state;
-    this._transition(s, STATES.RETIRED);
-    s.retireReason = reason;
+    const s = this._get(name);
+    if (s.state === STATES.RETIRED) return { success: false, from: s.state };
+    const from = s.state; this._transition(s, STATES.RETIRED); s.retireReason = reason;
     return { success: true, from };
   }
 
-  /**
-   * Get current status and metrics for a strategy.
-   * @param {string} name - Strategy name
-   * @returns {object} Status report
-   */
+  /** Get current state and metrics. @param {string} name */
   getStatus(name) {
-    const s = this._getStrategy(name);
-    return {
-      name: s.name,
-      state: s.state,
-      config: s.config,
-      registeredAt: s.registeredAt,
-      metrics: { ...s.metrics },
-      capitalAllocation: CAPITAL_MULTIPLIERS[s.state] * this.baseAllocation,
-      retireReason: s.retireReason,
-      transitions: s.stateHistory.length,
-    };
+    const s = this._get(name);
+    return { name: s.name, state: s.state, config: s.config, registeredAt: s.registeredAt,
+      metrics: { ...s.metrics }, capitalAllocation: CAP_MULT[s.state] * this.baseAllocation,
+      retireReason: s.retireReason, transitions: s.stateHistory.length };
   }
 
-  /**
-   * Get summary of all strategies grouped by state.
-   * @returns {object} Map of state → strategy names
-   */
+  /** Get all strategies grouped by state. */
   getAllStrategies() {
-    const grouped = {};
-    for (const state of Object.values(STATES)) {
-      grouped[state] = [];
-    }
-    for (const [name, s] of this.strategies) {
-      grouped[s.state].push({
-        name,
-        metrics: { ...s.metrics },
-        allocation: CAPITAL_MULTIPLIERS[s.state] * this.baseAllocation,
-      });
-    }
-    return grouped;
+    const g = Object.fromEntries(Object.values(STATES).map(s => [s, []]));
+    for (const [name, s] of this.strategies) g[s.state].push({ name, metrics: { ...s.metrics }, allocation: CAP_MULT[s.state] * this.baseAllocation });
+    return g;
   }
 
   /**
-   * Evaluate a strategy given its return series. Updates metrics and
-   * checks for auto-promotion or auto-demotion triggers.
-   * @param {string} name - Strategy name
-   * @param {number[]} returns - Daily return series
+   * Evaluate strategy returns — updates metrics, checks auto-promote/demote.
+   * @param {string} name @param {number[]} returns daily return series
    * @returns {{ action: string, details: string }}
    */
   evaluateStrategy(name, returns) {
-    const s = this._getStrategy(name);
-    const m = s.metrics;
-
-    const sr = sharpeRatio(returns);
-    const mdd = maxDrawdown(returns);
-    const rolling63 = rollingSharpe(returns, 63);
-    const alpha = this.benchmarkReturns
-      ? estimateAlpha(returns, this.benchmarkReturns)
-      : null;
-
-    // Update metrics based on current state
-    switch (s.state) {
-      case STATES.RESEARCH:
-        m.backtestSharpe = sr;
-        m.backtestDays = returns.length;
-        break;
-      case STATES.INCUBATION:
-        m.walkForwardSharpe = sr;
-        m.walkForwardMaxDD = mdd;
-        break;
-      case STATES.PAPER_TRADING:
-        m.paperSharpe = sr;
-        m.paperDays = returns.length;
-        break;
-      case STATES.LIVE:
-      case STATES.SCALING:
-        m.liveSharpe = sr;
-        m.liveDays = returns.length;
-        m.liveAlpha = alpha;
-        m.rollingSharpe63 = rolling63;
-        break;
-      case STATES.DEGRADING:
-        m.liveSharpe = sr;
-        m.rollingSharpe63 = rolling63;
-        break;
+    const s = this._get(name), m = s.metrics;
+    const sr = sharpeRatio(returns), mdd = maxDrawdown(returns), r63 = rollingSharpe(returns, 63);
+    const alpha = this.benchmarkReturns ? estimateAlpha(returns, this.benchmarkReturns) : null;
+    // Update metrics by state
+    if (s.state === STATES.RESEARCH) { m.backtestSharpe = sr; m.backtestDays = returns.length; }
+    else if (s.state === STATES.INCUBATION) { m.walkForwardSharpe = sr; m.walkForwardMaxDD = mdd; }
+    else if (s.state === STATES.PAPER_TRADING) { m.paperSharpe = sr; m.paperDays = returns.length; }
+    else if (s.state === STATES.LIVE || s.state === STATES.SCALING) { m.liveSharpe = sr; m.liveDays = returns.length; m.liveAlpha = alpha; m.rollingSharpe63 = r63; }
+    else if (s.state === STATES.DEGRADING) { m.liveSharpe = sr; m.rollingSharpe63 = r63; }
+    // Auto-demote: rolling 63d Sharpe < -0.5
+    if ((s.state === STATES.LIVE || s.state === STATES.SCALING) && r63 < -0.5) {
+      const from = s.state; this._transition(s, STATES.DEGRADING); s.degradingSince = new Date().toISOString();
+      return { action: "AUTO_DEMOTE", details: `${from} → DEGRADING (63d Sharpe ${r63.toFixed(2)})` };
     }
-
-    // Auto-demotion check: rolling 63-day Sharpe < -0.5 → DEGRADING
-    if (
-      (s.state === STATES.LIVE || s.state === STATES.SCALING) &&
-      rolling63 < -0.5
-    ) {
-      const from = s.state;
-      this._transition(s, STATES.DEGRADING);
-      s.degradingSince = new Date().toISOString();
-      return {
-        action: "AUTO_DEMOTE",
-        details: `${from} → DEGRADING (rolling 63d Sharpe ${rolling63.toFixed(2)} < -0.5)`,
-      };
+    if (s.state === STATES.DEGRADING && r63 < -0.5) {
+      this._transition(s, STATES.RETIRED); s.retireReason = `No recovery (Sharpe ${r63.toFixed(2)})`;
+      return { action: "AUTO_RETIRE", details: `DEGRADING → RETIRED (Sharpe ${r63.toFixed(2)})` };
     }
-
-    // DEGRADING auto-retire: simulate 63-day no-recovery check
-    if (s.state === STATES.DEGRADING && rolling63 < -0.5) {
-      this._transition(s, STATES.RETIRED);
-      s.retireReason = `No recovery: rolling Sharpe ${rolling63.toFixed(2)} after degrading period`;
-      return {
-        action: "AUTO_RETIRE",
-        details: `DEGRADING → RETIRED (no recovery, rolling Sharpe ${rolling63.toFixed(2)})`,
-      };
+    if (s.state === STATES.DEGRADING && r63 >= 0) {
+      this._transition(s, STATES.LIVE); s.degradingSince = null;
+      return { action: "RECOVERY", details: `DEGRADING → LIVE (Sharpe recovered ${r63.toFixed(2)})` };
     }
-
-    // Recovery from DEGRADING
-    if (s.state === STATES.DEGRADING && rolling63 >= 0) {
-      this._transition(s, STATES.LIVE);
-      s.degradingSince = null;
-      return {
-        action: "RECOVERY",
-        details: `DEGRADING → LIVE (rolling Sharpe recovered to ${rolling63.toFixed(2)})`,
-      };
-    }
-
-    return { action: "HOLD", details: `No state change warranted (Sharpe=${sr.toFixed(2)}, DD=${(mdd * 100).toFixed(1)}%)` };
+    return { action: "HOLD", details: `Sharpe=${sr.toFixed(2)}, DD=${(mdd * 100).toFixed(1)}%` };
   }
 
-  /**
-   * Generate formatted ASCII lifecycle report.
-   * @returns {string} Multi-line report
-   */
+  /** Generate formatted ASCII lifecycle report. @returns {string} */
   getLifecycleReport() {
-    const lines = [];
-    const divider = "═".repeat(82);
-    lines.push(divider);
-    lines.push("  STRATEGY LIFECYCLE REPORT");
-    lines.push(divider);
-    lines.push("");
-    lines.push(
-      `  ${"Strategy".padEnd(22)} ${"State".padEnd(15)} ${"Sharpe".padEnd(10)} ${"MaxDD".padEnd(10)} ${"Days".padEnd(8)} ${"Capital".padEnd(12)}`
-    );
-    lines.push("  " + "─".repeat(78));
-
+    const div = "=".repeat(85), lines = [div, "  STRATEGY LIFECYCLE REPORT", div, ""];
+    const icons = { RESEARCH: "[R]", INCUBATION: "[I]", PAPER_TRADING: "[P]", LIVE: "[L]", SCALING: "[S]", DEGRADING: "[!]", RETIRED: "[X]" };
+    lines.push(`  ${"Strategy".padEnd(20)} ${"State".padEnd(18)} ${"Sharpe".padEnd(9)} ${"MaxDD".padEnd(9)} ${"Days".padEnd(7)} Capital`);
+    lines.push("  " + "-".repeat(80));
     for (const [name, s] of this.strategies) {
-      const m = s.metrics;
-      const activeSharpe =
-        m.liveSharpe ?? m.paperSharpe ?? m.walkForwardSharpe ?? m.backtestSharpe;
-      const activeDD = m.walkForwardMaxDD;
-      const activeDays = m.liveDays || m.paperDays || m.backtestDays || 0;
-      const capital = CAPITAL_MULTIPLIERS[s.state] * this.baseAllocation;
-
-      const stateIcon = {
-        [STATES.RESEARCH]: "[R]",
-        [STATES.INCUBATION]: "[I]",
-        [STATES.PAPER_TRADING]: "[P]",
-        [STATES.LIVE]: "[L]",
-        [STATES.SCALING]: "[S]",
-        [STATES.DEGRADING]: "[!]",
-        [STATES.RETIRED]: "[X]",
-      };
-
-      lines.push(
-        `  ${name.padEnd(22)} ${(stateIcon[s.state] + " " + s.state).padEnd(15)} ${(activeSharpe !== null ? activeSharpe.toFixed(2) : "  --").padEnd(10)} ${(activeDD !== null ? (activeDD * 100).toFixed(1) + "%" : "  --").padEnd(10)} ${String(activeDays).padEnd(8)} $${capital.toLocaleString().padEnd(11)}`
-      );
+      const m = s.metrics, sr = m.liveSharpe ?? m.paperSharpe ?? m.walkForwardSharpe ?? m.backtestSharpe;
+      const dd = m.walkForwardMaxDD, days = m.liveDays || m.paperDays || m.backtestDays || 0;
+      const cap = CAP_MULT[s.state] * this.baseAllocation;
+      lines.push(`  ${name.padEnd(20)} ${(icons[s.state] + " " + s.state).padEnd(18)} ${(sr != null ? sr.toFixed(2) : "--").padEnd(9)} ${(dd != null ? (dd * 100).toFixed(1) + "%" : "--").padEnd(9)} ${String(days).padEnd(7)} $${cap.toLocaleString()}`);
     }
-
-    lines.push("");
-    lines.push("  " + "─".repeat(78));
-
-    // Summary counts
-    const counts = {};
-    for (const state of Object.values(STATES)) counts[state] = 0;
-    for (const [, s] of this.strategies) counts[s.state]++;
-
-    lines.push(
-      `  Summary: ${counts.RESEARCH} research | ${counts.INCUBATION} incubation | ${counts.PAPER_TRADING} paper | ${counts.LIVE} live | ${counts.SCALING} scaling | ${counts.DEGRADING} degrading | ${counts.RETIRED} retired`
-    );
-
-    const totalCapital = [...this.strategies.values()].reduce(
-      (sum, s) => sum + CAPITAL_MULTIPLIERS[s.state] * this.baseAllocation,
-      0
-    );
-    lines.push(`  Total Capital Deployed: $${totalCapital.toLocaleString()}`);
-    lines.push(divider);
-
+    lines.push("  " + "-".repeat(80));
+    const cnt = Object.fromEntries(Object.values(STATES).map(s => [s, 0]));
+    for (const [, s] of this.strategies) cnt[s.state]++;
+    lines.push(`  ${cnt.RESEARCH}R | ${cnt.INCUBATION}I | ${cnt.PAPER_TRADING}P | ${cnt.LIVE}L | ${cnt.SCALING}S | ${cnt.DEGRADING}D | ${cnt.RETIRED}X`);
+    const total = [...this.strategies.values()].reduce((s, v) => s + CAP_MULT[v.state] * this.baseAllocation, 0);
+    lines.push(`  Total Capital: $${total.toLocaleString()}`);
+    lines.push(div);
     return lines.join("\n");
   }
 
-  /**
-   * Calculate suggested capital allocation per strategy based on lifecycle stage.
-   * @returns {{ allocations: object[], totalDeployed: number, unallocated: number }}
-   */
+  /** Suggested capital per strategy based on lifecycle stage. */
   getCapitalAllocation() {
-    const allocations = [];
-    let totalDeployed = 0;
-
+    const allocs = []; let total = 0;
     for (const [name, s] of this.strategies) {
-      const multiplier = CAPITAL_MULTIPLIERS[s.state] ?? 0;
-      const capital = multiplier * this.baseAllocation;
-      totalDeployed += capital;
-      allocations.push({
-        name,
-        state: s.state,
-        multiplier,
-        capital,
-        pctOfBase: (multiplier * 100).toFixed(0) + "%",
-      });
+      const m = CAP_MULT[s.state] ?? 0, cap = m * this.baseAllocation; total += cap;
+      allocs.push({ name, state: s.state, multiplier: m, capital: cap, pctOfBase: (m * 100).toFixed(0) + "%" });
     }
-
-    return {
-      allocations,
-      totalDeployed,
-      baseAllocation: this.baseAllocation,
-    };
+    return { allocations: allocs, totalDeployed: total, baseAllocation: this.baseAllocation };
   }
+}
+
+// ─── Synthetic Return Generators (for demo) ─────────────
+
+/**
+ * Generate synthetic strategy returns with controlled alpha and market beta.
+ * Uses Box-Muller for zero-mean Gaussian noise.
+ * @param {number[]} mktRet - benchmark market returns
+ * @param {number} alpha - daily excess return (strategy edge)
+ * @param {number} vol - idiosyncratic volatility
+ * @param {number} len - number of trading days
+ * @param {number} beta - market beta exposure
+ * @returns {number[]} synthetic daily returns
+ */
+function syntheticReturns(mktRet, alpha, vol, len, beta = 0.15) {
+  let seed = Math.abs(alpha * 1e7 + vol * 1e5) | 0 || 7;
+  const rng = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const randn = () => {
+    const u1 = rng() * 0.9998 + 0.0001, u2 = rng() * 0.9998 + 0.0001;
+    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  };
+  return Array.from({ length: len }, (_, i) =>
+    (i < mktRet.length ? mktRet[i] * beta : 0) + alpha + vol * randn()
+  );
+}
+
+/** Generate consistently negative returns to trigger degradation. */
+function degradingReturns(len) {
+  let seed = 42;
+  const rng = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed / 0x7fffffff) * 2 - 1; };
+  return Array.from({ length: len }, () => -0.003 + 0.01 * rng());
 }
 
 // ─── CLI Demo ───────────────────────────────────────────
-
-/**
- * Generate synthetic strategy returns with controlled alpha.
- * Adds daily drift to market returns to simulate strategy edge.
- * @param {number[]} marketReturns - Base market returns
- * @param {number} dailyAlpha - Daily alpha to add
- * @param {number} vol - Idiosyncratic volatility
- * @param {number} length - Number of days
- * @returns {number[]}
- */
-function syntheticStrategyReturns(marketReturns, dailyAlpha, vol, length, beta = 0.15) {
-  const returns = [];
-  let seed = Math.abs(dailyAlpha * 1e7 + vol * 1e5) | 0 || 7;
-  const rng = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  // Box-Muller for zero-mean Gaussian noise
-  const randn = () => {
-    const u1 = rng() * 0.9998 + 0.0001;
-    const u2 = rng() * 0.9998 + 0.0001;
-    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  };
-  for (let i = 0; i < length; i++) {
-    // Low market beta + strategy-specific alpha + zero-mean noise
-    const mkt = i < marketReturns.length ? marketReturns[i] * beta : 0;
-    returns.push(mkt + dailyAlpha + vol * randn());
-  }
-  return returns;
-}
-
-/**
- * Generate poor returns that will trigger degradation.
- * @param {number} length - Number of days
- * @returns {number[]}
- */
-function degradingReturns(length) {
-  const returns = [];
-  let seed = 42;
-  const rng = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return (seed / 0x7fffffff) * 2 - 1;
-  };
-  for (let i = 0; i < length; i++) {
-    returns.push(-0.003 + 0.01 * rng());
-  }
-  return returns;
-}
-
-/**
- * Simulate strategies progressing through the full lifecycle.
- */
 async function main() {
   console.log("\n=== Strategy Lifecycle Manager Demo ===\n");
+  const mgr = new StrategyLifecycleManager(250_000);
+  const bench = computeReturns(generateRealisticPrices("SPY", "2019-01-01", "2025-06-01"));
+  mgr.setBenchmark(bench);
 
-  const manager = new StrategyLifecycleManager(250_000);
-
-  // Generate benchmark returns
-  const spyPrices = generateRealisticPrices("SPY", "2019-01-01", "2025-06-01");
-  const benchReturns = computeReturns(spyPrices);
-  manager.setBenchmark(benchReturns);
-
-  // Register strategies with varying edge profiles
-  // alpha = daily excess return, vol = idiosyncratic noise
-  const strategyConfigs = [
-    { name: "MomentumAlpha", config: { asset: "SPY", type: "momentum", author: "quant-team-1" }, alpha: 0.0008, vol: 0.006 },
-    { name: "PairsMeanRev", config: { asset: "AAPL/MSFT", type: "mean-reversion", author: "quant-team-2" }, alpha: 0.0006, vol: 0.005 },
-    { name: "VolSurface", config: { asset: "QQQ", type: "volatility", author: "quant-team-1" }, alpha: 0.0003, vol: 0.009 },
-    { name: "MacroCarry", config: { asset: "TLT/GLD", type: "carry", author: "quant-team-3" }, alpha: 0.0007, vol: 0.005 },
-    { name: "MicroHFT", config: { asset: "XLF", type: "market-making", author: "quant-team-2" }, alpha: 0.0010, vol: 0.005 },
+  const cfgs = [
+    { name: "MomentumAlpha", config: { asset: "SPY", type: "momentum", author: "team-1" }, a: 0.0008, v: 0.006 },
+    { name: "PairsMeanRev", config: { asset: "AAPL/MSFT", type: "mean-reversion", author: "team-2" }, a: 0.0006, v: 0.005 },
+    { name: "VolSurface", config: { asset: "QQQ", type: "volatility", author: "team-1" }, a: 0.0003, v: 0.009 },
+    { name: "MacroCarry", config: { asset: "TLT/GLD", type: "carry", author: "team-3" }, a: 0.0007, v: 0.005 },
+    { name: "MicroHFT", config: { asset: "XLF", type: "market-making", author: "team-2" }, a: 0.0010, v: 0.005 },
   ];
+  cfgs.forEach(c => { mgr.registerStrategy(c.name, c.config); console.log(`  Registered: ${c.name}`); });
 
-  for (const { name, config } of strategyConfigs) {
-    manager.registerStrategy(name, config);
-    console.log(`  Registered: ${name} (${config.type})`);
+  // Phase 1: Backtest
+  console.log("\n--- Phase 1: Backtest (RESEARCH) ---");
+  for (const c of cfgs) {
+    mgr.evaluateStrategy(c.name, syntheticReturns(bench, c.a, c.v, 1260));
+    const s = mgr.getStatus(c.name); console.log(`  ${c.name}: Sharpe=${s.metrics.backtestSharpe?.toFixed(2)}, Days=${s.metrics.backtestDays}`);
   }
 
-  // ── Phase 1: Backtest (RESEARCH state) ──────────────────
+  // Phase 2: RESEARCH → INCUBATION
+  console.log("\n--- Phase 2: Promote → INCUBATION ---");
+  cfgs.forEach(c => { const r = mgr.promote(c.name); console.log(`  ${c.name}: ${r.success ? "PROMOTED" : "BLOCKED"} ${r.reason || ""}`); });
 
-  console.log("\n--- Phase 1: Backtest Evaluation ---\n");
-
-  const stratReturns = {};
-  for (const sc of strategyConfigs) {
-    const returns = syntheticStrategyReturns(benchReturns, sc.alpha, sc.vol, 1260);
-    stratReturns[sc.name] = returns;
-    const result = manager.evaluateStrategy(sc.name, returns);
-    const status = manager.getStatus(sc.name);
-    console.log(`  ${sc.name}: Sharpe=${status.metrics.backtestSharpe?.toFixed(2)}, Days=${status.metrics.backtestDays} → ${result.action}`);
+  // Phase 3: Walk-forward
+  console.log("\n--- Phase 3: Walk-Forward (INCUBATION) ---");
+  for (const c of cfgs) { if (mgr.getStatus(c.name).state !== STATES.INCUBATION) continue;
+    mgr.evaluateStrategy(c.name, syntheticReturns(bench.slice(-504), c.a * 0.7, c.v, 504));
+    const s = mgr.getStatus(c.name); console.log(`  ${c.name}: WF-Sharpe=${s.metrics.walkForwardSharpe?.toFixed(2)}, MaxDD=${((s.metrics.walkForwardMaxDD ?? 0) * 100).toFixed(1)}%`);
   }
 
-  // ── Phase 2: Promote RESEARCH → INCUBATION ─────────────
+  // Phase 4: INCUBATION → PAPER_TRADING
+  console.log("\n--- Phase 4: Promote → PAPER_TRADING ---");
+  cfgs.forEach(c => { if (mgr.getStatus(c.name).state !== STATES.INCUBATION) return; const r = mgr.promote(c.name); console.log(`  ${c.name}: ${r.success ? "PROMOTED" : "BLOCKED"} ${r.reason || ""}`); });
 
-  console.log("\n--- Phase 2: Promotion (RESEARCH → INCUBATION) ---\n");
-
-  for (const sc of strategyConfigs) {
-    const result = manager.promote(sc.name);
-    console.log(`  ${sc.name}: ${result.success ? "PROMOTED" : "BLOCKED"} (${result.from} → ${result.to})${result.reason ? " - " + result.reason : ""}`);
+  // Phase 5: Paper trading
+  console.log("\n--- Phase 5: Paper Trading ---");
+  for (const c of cfgs) { if (mgr.getStatus(c.name).state !== STATES.PAPER_TRADING) continue;
+    mgr.evaluateStrategy(c.name, syntheticReturns(bench.slice(-126), c.a * 0.5, c.v, 126));
+    const s = mgr.getStatus(c.name); console.log(`  ${c.name}: Paper-Sharpe=${s.metrics.paperSharpe?.toFixed(2)}, Days=${s.metrics.paperDays}`);
   }
 
-  // ── Phase 3: Walk-Forward (INCUBATION state) ───────────
+  // Phase 6: PAPER_TRADING → LIVE
+  console.log("\n--- Phase 6: Promote → LIVE ---");
+  cfgs.forEach(c => { if (mgr.getStatus(c.name).state !== STATES.PAPER_TRADING) return; const r = mgr.promote(c.name); console.log(`  ${c.name}: ${r.success ? "PROMOTED" : "BLOCKED"} ${r.reason || ""}`); });
 
-  console.log("\n--- Phase 3: Walk-Forward Evaluation ---\n");
-
-  for (const sc of strategyConfigs) {
-    const s = manager.getStatus(sc.name);
-    if (s.state !== STATES.INCUBATION) continue;
-    const wfReturns = syntheticStrategyReturns(benchReturns.slice(-504), sc.alpha * 0.7, sc.vol, 504);
-    const result = manager.evaluateStrategy(sc.name, wfReturns);
-    const updated = manager.getStatus(sc.name);
-    console.log(`  ${sc.name}: WF-Sharpe=${updated.metrics.walkForwardSharpe?.toFixed(2)}, MaxDD=${((updated.metrics.walkForwardMaxDD ?? 0) * 100).toFixed(1)}% → ${result.action}`);
+  // Phase 7: Live evaluation + scaling
+  console.log("\n--- Phase 7: Live → SCALING ---");
+  for (const c of cfgs) { if (mgr.getStatus(c.name).state !== STATES.LIVE) continue;
+    mgr.evaluateStrategy(c.name, syntheticReturns(bench.slice(-252), c.a, c.v * 0.5, 252, 0.8));
+    const s = mgr.getStatus(c.name); console.log(`  ${c.name}: Live-Sharpe=${s.metrics.liveSharpe?.toFixed(2)}, Alpha=${(s.metrics.liveAlpha ?? 0).toFixed(4)}`);
+    const r = mgr.promote(c.name); console.log(`    ${r.success ? "→ SCALING" : "Blocked"} ${r.reason || ""}`);
   }
 
-  // ── Phase 4: Promote INCUBATION → PAPER_TRADING ────────
-
-  console.log("\n--- Phase 4: Promotion (INCUBATION → PAPER_TRADING) ---\n");
-
-  for (const sc of strategyConfigs) {
-    const s = manager.getStatus(sc.name);
-    if (s.state !== STATES.INCUBATION) continue;
-    const result = manager.promote(sc.name);
-    console.log(`  ${sc.name}: ${result.success ? "PROMOTED" : "BLOCKED"} → ${result.to}${result.reason ? " - " + result.reason : ""}`);
-  }
-
-  // ── Phase 5: Paper Trading Evaluation ──────────────────
-
-  console.log("\n--- Phase 5: Paper Trading Evaluation ---\n");
-
-  for (const sc of strategyConfigs) {
-    const s = manager.getStatus(sc.name);
-    if (s.state !== STATES.PAPER_TRADING) continue;
-    const paperReturns = syntheticStrategyReturns(benchReturns.slice(-126), sc.alpha * 0.5, sc.vol, 126);
-    const result = manager.evaluateStrategy(sc.name, paperReturns);
-    const updated = manager.getStatus(sc.name);
-    console.log(`  ${sc.name}: Paper-Sharpe=${updated.metrics.paperSharpe?.toFixed(2)}, Days=${updated.metrics.paperDays} → ${result.action}`);
-  }
-
-  // ── Phase 6: Promote PAPER_TRADING → LIVE ─────────────
-
-  console.log("\n--- Phase 6: Promotion (PAPER_TRADING → LIVE) ---\n");
-
-  for (const sc of strategyConfigs) {
-    const s = manager.getStatus(sc.name);
-    if (s.state !== STATES.PAPER_TRADING) continue;
-    const result = manager.promote(sc.name);
-    console.log(`  ${sc.name}: ${result.success ? "PROMOTED" : "BLOCKED"} → ${result.to}${result.reason ? " - " + result.reason : ""}`);
-  }
-
-  // ── Phase 7: Live Evaluation & Scaling ─────────────────
-
-  console.log("\n--- Phase 7: Live Evaluation & Scaling ---\n");
-
-  for (const sc of strategyConfigs) {
-    const s = manager.getStatus(sc.name);
-    if (s.state !== STATES.LIVE) continue;
-    const liveReturns = syntheticStrategyReturns(benchReturns.slice(-252), sc.alpha, sc.vol * 0.5, 252, 0.8);
-    const result = manager.evaluateStrategy(sc.name, liveReturns);
-    const updated = manager.getStatus(sc.name);
-    console.log(`  ${sc.name}: Live-Sharpe=${updated.metrics.liveSharpe?.toFixed(2)}, Days=${updated.metrics.liveDays}, Alpha=${(updated.metrics.liveAlpha ?? 0).toFixed(4)} → ${result.action} (${result.details})`);
-  }
-
-  // Attempt scaling promotion for strategies that qualify
-  for (const sc of strategyConfigs) {
-    const s = manager.getStatus(sc.name);
-    if (s.state !== STATES.LIVE) continue;
-    const result = manager.promote(sc.name);
-    console.log(`  ${sc.name}: ${result.success ? "PROMOTED → SCALING" : "SCALING BLOCKED"}${result.reason ? " - " + result.reason : ""}`);
-  }
-
-  // ── Phase 8: Degradation & Auto-Retire ─────────────────
-
-  console.log("\n--- Phase 8: Degradation Scenario ---\n");
-
-  // Simulate MacroCarry hitting a bad patch
-  const macroStatus = manager.getStatus("MacroCarry");
-  if (macroStatus.state === STATES.LIVE || macroStatus.state === STATES.SCALING) {
-    const badReturns = degradingReturns(126);
-    const result = manager.evaluateStrategy("MacroCarry", badReturns);
-    console.log(`  MacroCarry: ${result.action} (${result.details})`);
-
-    // If degrading, evaluate again with continued bad returns → auto-retire
-    const afterDeg = manager.getStatus("MacroCarry");
-    if (afterDeg.state === STATES.DEGRADING) {
-      const stillBad = degradingReturns(63);
-      const retireResult = manager.evaluateStrategy("MacroCarry", stillBad);
-      console.log(`  MacroCarry: ${retireResult.action} (${retireResult.details})`);
+  // Phase 8: Degradation
+  console.log("\n--- Phase 8: Degradation ---");
+  const ms = mgr.getStatus("MacroCarry");
+  if (ms.state === STATES.LIVE || ms.state === STATES.SCALING) {
+    let r = mgr.evaluateStrategy("MacroCarry", degradingReturns(126));
+    console.log(`  MacroCarry: ${r.action} (${r.details})`);
+    if (mgr.getStatus("MacroCarry").state === STATES.DEGRADING) {
+      r = mgr.evaluateStrategy("MacroCarry", degradingReturns(63));
+      console.log(`  MacroCarry: ${r.action} (${r.details})`);
     }
   }
 
-  // ── Phase 9: Force Retire ──────────────────────────────
+  // Phase 9: Force retire
+  console.log("\n--- Phase 9: Force Retire ---");
+  const rr = mgr.retire("MicroHFT", "Spread compression in XLF");
+  console.log(`  MicroHFT: ${rr.success ? "RETIRED" : "ALREADY RETIRED"} from ${rr.from}`);
 
-  console.log("\n--- Phase 9: Force Retire ---\n");
-
-  const retireResult = manager.retire("MicroHFT", "Capacity constraints — spread compression in XLF");
-  console.log(`  MicroHFT: ${retireResult.success ? "RETIRED" : "ALREADY RETIRED"} from ${retireResult.from}`);
-
-  // ── Final Reports ──────────────────────────────────────
-
-  console.log("\n" + manager.getLifecycleReport());
-
-  console.log("\n--- Capital Allocation ---\n");
-  const allocation = manager.getCapitalAllocation();
-  for (const a of allocation.allocations) {
-    console.log(`  ${a.name.padEnd(20)} ${a.state.padEnd(15)} ${a.pctOfBase.padStart(5)} of base  $${a.capital.toLocaleString()}`);
-  }
-  console.log(`\n  Total Deployed: $${allocation.totalDeployed.toLocaleString()}`);
-  console.log(`  Base Allocation: $${allocation.baseAllocation.toLocaleString()}/strategy`);
-
-  console.log("\n--- All Strategies by State ---\n");
-  const all = manager.getAllStrategies();
-  for (const [state, strats] of Object.entries(all)) {
-    if (strats.length > 0) {
-      console.log(`  ${state}: ${strats.map((s) => s.name).join(", ")}`);
-    }
-  }
+  // Reports
+  console.log("\n" + mgr.getLifecycleReport());
+  console.log("\n--- Capital Allocation ---");
+  const alloc = mgr.getCapitalAllocation();
+  alloc.allocations.forEach(a => console.log(`  ${a.name.padEnd(18)} ${a.state.padEnd(15)} ${a.pctOfBase.padStart(5)} → $${a.capital.toLocaleString()}`));
+  console.log(`  Total: $${alloc.totalDeployed.toLocaleString()} (base $${alloc.baseAllocation.toLocaleString()}/strategy)\n`);
+  const all = mgr.getAllStrategies();
+  for (const [st, arr] of Object.entries(all)) { if (arr.length) console.log(`  ${st}: ${arr.map(s => s.name).join(", ")}`); }
   console.log("");
 }
 
-// ─── Entry Point ────────────────────────────────────────
-
-main().catch((err) => {
-  console.error("Lifecycle manager error:", err.message);
-  process.exit(1);
-});
+main().catch(e => { console.error("Error:", e.message); process.exit(1); });
